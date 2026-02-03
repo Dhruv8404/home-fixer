@@ -1,4 +1,4 @@
-Django
+Django==6.0.1
 djangorestframework
 djangorestframework-simplejwt
 drf-yasg
