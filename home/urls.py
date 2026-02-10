@@ -10,7 +10,8 @@ from .views import (
     VendorProfileAPI,
     ServicemanProfileAPI,
     CustomerProfileAPI,
-    ProfileUpdateAPI
+    ProfileUpdateAPI,
+    ProfileAPI
 )
 
 urlpatterns = [
@@ -33,6 +34,7 @@ urlpatterns = [
     path("user/customer-profile/", CustomerProfileAPI.as_view()),  
     path("user/serviceman-profile/", ServicemanProfileAPI.as_view()),
     path("user/vendor-profile/", VendorProfileAPI.as_view()),     
+    path("profile/", ProfileAPI.as_view()),
     path("profile/update/", ProfileUpdateAPI.as_view()),
 
 

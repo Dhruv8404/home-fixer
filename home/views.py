@@ -360,23 +360,43 @@ class ProfileUpdateAPI(APIView):
 
     @swagger_auto_schema(
         operation_summary="Update logged-in user profile (role based)",
-        request_body=CustomerProfileSerializer,
+        operation_description="""
+        Updates profile based on user role:
+        - CUSTOMER → CustomerProfile
+        - SERVICEMAN → ServicemanProfile
+        - VENDOR → VendorProfile
+        """,
         responses={200: ProfileResponseSerializer}
     )
     def put(self, request):
         user = request.user
 
+        # CUSTOMER
         if user.role == "CUSTOMER":
             profile, _ = CustomerProfile.objects.get_or_create(user=user)
-            serializer = CustomerProfileSerializer(profile, data=request.data, partial=True)
+            serializer = CustomerProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True
+            )
 
+        # SERVICEMAN
         elif user.role == "SERVICEMAN":
             profile, _ = ServicemanProfile.objects.get_or_create(user=user)
-            serializer = ServicemanProfileSerializer(profile, data=request.data, partial=True)
+            serializer = ServicemanProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True
+            )
 
+        # VENDOR
         elif user.role == "VENDOR":
             profile, _ = VendorProfile.objects.get_or_create(user=user)
-            serializer = VendorProfileSerializer(profile, data=request.data, partial=True)
+            serializer = VendorProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True
+            )
 
         else:
             return Response(
@@ -390,4 +410,4 @@ class ProfileUpdateAPI(APIView):
         return Response({
             "message": "Profile updated successfully",
             "profile": serializer.data
-        })
+        }, status=status.HTTP_200_OK)
