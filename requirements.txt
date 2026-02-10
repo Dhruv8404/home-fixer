@@ -1,0 +1,7 @@
+Django==5.2.11
+djangorestframework
+djangorestframework-simplejwt
+drf-yasg
+psycopg2-binary
+gunicorn
+python-dotenv     
