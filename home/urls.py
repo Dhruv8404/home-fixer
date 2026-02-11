@@ -5,13 +5,16 @@ from .views import (
     RegisterSendOTPAPI,
     RegisterVerifyOTPAPI,
     RegisterCompleteAPI,
+    ServicemanProfileUpdateAPI,
     UserProfileAPI,
     LogoutAPI,
     VendorProfileAPI,
     ServicemanProfileAPI,
     CustomerProfileAPI,
-    ProfileUpdateAPI,
-    ProfileAPI
+
+    CustomerProfileUpdateAPI,
+    ProfileAPI,
+    VendorProfileUpdateAPI
 )
 
 urlpatterns = [
@@ -35,7 +38,10 @@ urlpatterns = [
     path("user/serviceman-profile/", ServicemanProfileAPI.as_view()),
     path("user/vendor-profile/", VendorProfileAPI.as_view()),     
     path("profile/", ProfileAPI.as_view()),
-    path("profile/update/", ProfileUpdateAPI.as_view()),
+    path("profile/customer/update/", CustomerProfileUpdateAPI.as_view()),
+    path("profile/serviceman/update/", ServicemanProfileUpdateAPI.as_view()),
+    path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),
+
 
 
 ]

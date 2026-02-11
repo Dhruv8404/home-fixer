@@ -15,6 +15,7 @@ from .serializers import (
     ServicemanProfileSerializer,
     CustomerProfileSerializer,
     ProfileResponseSerializer,
+    UniversalProfileUpdateSerializer,
 )
 from .utils import send_email_otp, verify_email_otp
 from rest_framework import status
@@ -144,26 +145,11 @@ class RegisterVerifyOTPAPI(APIView):
                 status=400
             )
 
-        user = User.objects.create(
-            email=email,
-            name=serializer.validated_data.get("name", ""),
-            phone=serializer.validated_data.get("phone", ""),
-            role=serializer.validated_data.get("role", "CUSTOMER"),
-            is_verified=True,
-        )
-
-        # create profile
-        if user.role == "CUSTOMER":
-            CustomerProfile.objects.create(user=user)
-        elif user.role == "SERVICEMAN":
-            ServicemanProfile.objects.create(user=user)
-        elif user.role == "VENDOR":
-            VendorProfile.objects.create(user=user)
+        # Mark OTP Verified
+        EmailOTP.objects.filter(email=email).update(is_verified=True)
 
         return Response({
-            "message": "Registration successful",
-            "role": user.role,
-            "tokens": get_tokens(user),
+            "message": "OTP verified successfully. Please complete registration."
         })
 
 
@@ -177,19 +163,28 @@ class RegisterCompleteAPI(APIView):
 
         email = serializer.validated_data["email"]
 
-        # OTP must be verified first
+        # Check OTP verified
         if not EmailOTP.objects.filter(email=email, is_verified=True).exists():
             return Response(
                 {"detail": "Email not verified or OTP expired"},
                 status=400
             )
 
+        # Prevent duplicate user
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {"detail": "User already exists"},
+                status=400
+            )
+
+        # Create user
         user = User.objects.create_user(
             email=email,
             phone=serializer.validated_data["phone"],
             password=serializer.validated_data["password"],
             role=serializer.validated_data["role"],
         )
+
         user.name = serializer.validated_data["name"]
         user.is_verified = True
         user.save()
@@ -205,11 +200,6 @@ class RegisterCompleteAPI(APIView):
         return Response({
             "success": True,
             "message": "User registered successfully",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "role": user.role,
-            },
             "tokens": get_tokens(user)
         })
 
@@ -317,6 +307,40 @@ class VendorProfileAPI(APIView):
 
 
 
+class SaveProfileAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if user.role == "CUSTOMER":
+            model = CustomerProfile
+            serializer_class = CustomerProfileSerializer
+
+        elif user.role == "SERVICEMAN":
+            model = ServicemanProfile
+            serializer_class = ServicemanProfileSerializer
+
+        elif user.role == "VENDOR":
+            model = VendorProfile
+            serializer_class = VendorProfileSerializer
+
+        else:
+            return Response({"detail": "Invalid role"}, status=400)
+
+        profile, _ = model.objects.get_or_create(user=user)
+
+        serializer = serializer_class(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response({
+            "message": "Profile saved successfully",
+            "profile": serializer.data
+        })
+
+
+
 class ProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -354,60 +378,88 @@ class ProfileAPI(APIView):
 
 
 #=============Profile Update API =============#
-
-class ProfileUpdateAPI(APIView):
+class CustomerProfileUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Update logged-in user profile (role based)",
-        operation_description="""
-        Updates profile based on user role:
-        - CUSTOMER → CustomerProfile
-        - SERVICEMAN → ServicemanProfile
-        - VENDOR → VendorProfile
-        """,
-        responses={200: ProfileResponseSerializer}
+        request_body=CustomerProfileSerializer,
+        responses={200: CustomerProfileSerializer}
     )
     def put(self, request):
-        user = request.user
 
-        # CUSTOMER
-        if user.role == "CUSTOMER":
-            profile, _ = CustomerProfile.objects.get_or_create(user=user)
-            serializer = CustomerProfileSerializer(
-                profile,
-                data=request.data,
-                partial=True
-            )
-
-        # SERVICEMAN
-        elif user.role == "SERVICEMAN":
-            profile, _ = ServicemanProfile.objects.get_or_create(user=user)
-            serializer = ServicemanProfileSerializer(
-                profile,
-                data=request.data,
-                partial=True
-            )
-
-        # VENDOR
-        elif user.role == "VENDOR":
-            profile, _ = VendorProfile.objects.get_or_create(user=user)
-            serializer = VendorProfileSerializer(
-                profile,
-                data=request.data,
-                partial=True
-            )
-
-        else:
+        if request.user.role != "CUSTOMER":
             return Response(
-                {"detail": "Invalid user role"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": "Only CUSTOMER can update this profile"},
+                status=403
             )
+
+        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
+
+        serializer = CustomerProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True
+        )
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        return Response({
-            "message": "Profile updated successfully",
-            "profile": serializer.data
-        }, status=status.HTTP_200_OK)
+        return Response(serializer.data)
+
+
+class ServicemanProfileUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=ServicemanProfileSerializer,
+        responses={200: ServicemanProfileSerializer}
+    )
+    def put(self, request):
+
+        if request.user.role != "SERVICEMAN":
+            return Response(
+                {"detail": "Only SERVICEMAN can update this profile"},
+                status=403
+            )
+
+        profile, _ = ServicemanProfile.objects.get_or_create(user=request.user)
+
+        serializer = ServicemanProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+
+class VendorProfileUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=VendorProfileSerializer,
+        responses={200: VendorProfileSerializer}
+    )
+    def put(self, request):
+
+        if request.user.role != "VENDOR":
+            return Response(
+                {"detail": "Only VENDOR can update this profile"},
+                status=403
+            )
+
+        profile, _ = VendorProfile.objects.get_or_create(user=request.user)
+
+        serializer = VendorProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)

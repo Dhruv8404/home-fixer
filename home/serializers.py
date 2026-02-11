@@ -105,3 +105,29 @@ class VendorProfileSerializer(serializers.ModelSerializer):
 class ProfileResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
     profile = serializers.DictField()
+
+
+
+class UniversalProfileUpdateSerializer(serializers.Serializer):
+
+    # ===== CUSTOMER =====
+    default_address = serializers.CharField(required=False)
+    default_lat = serializers.DecimalField(max_digits=10, decimal_places=8, required=False)
+    default_long = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    profile_pic_url = serializers.URLField(required=False)
+
+    # ===== SERVICEMAN =====
+    is_online = serializers.BooleanField(required=False)
+    current_lat = serializers.DecimalField(max_digits=10, decimal_places=8, required=False)
+    current_long = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    experience_years = serializers.IntegerField(required=False)
+    kyc_docs_url = serializers.URLField(required=False)
+
+    # ===== VENDOR =====
+    business_name = serializers.CharField(required=False)
+    gst_number = serializers.CharField(required=False)
+    store_address = serializers.CharField(required=False)
+    store_lat = serializers.DecimalField(max_digits=10, decimal_places=8, required=False)
+    store_long = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
+    opening_hours = serializers.CharField(required=False)
+    bank_account_details = serializers.CharField(required=False)
