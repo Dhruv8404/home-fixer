@@ -36,9 +36,17 @@ class CompleteRegisterSerializer(serializers.Serializer):
     def validate_phone(self, value):
         if not value.isdigit():
             raise serializers.ValidationError(
-                "Phone number must contain only digits"
-            )
+            "Phone number must contain only digits"
+        )
+
+    # 🔥 ADD THIS PART
+        if User.objects.filter(phone=value).exists():
+            raise serializers.ValidationError(
+            "User with this phone number already exists"
+        )
+
         return value
+
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():

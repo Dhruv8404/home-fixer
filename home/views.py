@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
-
+from drf_yasg import openapi
 from .models import User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP
 from .serializers import (
     SendOTPSerializer,
@@ -109,14 +109,29 @@ class LoginVerifyOTPAPI(APIView):
 class RegisterSendOTPAPI(APIView):
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(request_body=SendOTPSerializer)
+    @swagger_auto_schema(
+        operation_summary="Send Registration OTP",
+        operation_description="Send OTP to email for new user registration",
+        request_body=SendOTPSerializer,
+        tags=["Auth"],
+        responses={
+            200: openapi.Response(
+                description="OTP Sent",
+                examples={
+                    "application/json": {
+                        "message": "OTP sent for registration"
+                    }
+                }
+            ),
+            400: "User already exists"
+        }
+    )
     def post(self, request):
         serializer = SendOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         email = serializer.validated_data["email"]
 
-        # user must NOT exist
         if User.objects.filter(email=email).exists():
             return Response(
                 {"detail": "User already exists. Please login."},
@@ -127,11 +142,14 @@ class RegisterSendOTPAPI(APIView):
         return Response({"message": "OTP sent for registration"})
 
 
-
 class RegisterVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(request_body=VerifyOTPSerializer)
+    @swagger_auto_schema(
+        operation_summary="Verify Registration OTP",
+        request_body=VerifyOTPSerializer,
+        responses={200: "OTP Verified", 400: "Invalid OTP"}
+    )
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -139,19 +157,24 @@ class RegisterVerifyOTPAPI(APIView):
         email = serializer.validated_data["email"]
         otp = serializer.validated_data["otp"]
 
-        if not verify_email_otp(email, otp):
+        otp_obj = EmailOTP.objects.filter(
+            email=email,
+            otp=otp,
+            is_verified=False
+        ).order_by("-created_at").first()
+
+        if not otp_obj:
             return Response(
                 {"detail": "Invalid or expired OTP"},
                 status=400
             )
 
-        # Mark OTP Verified
-        EmailOTP.objects.filter(email=email).update(is_verified=True)
+        otp_obj.is_verified = True
+        otp_obj.save()
 
         return Response({
             "message": "OTP verified successfully. Please complete registration."
         })
-
 
 class RegisterCompleteAPI(APIView):
     permission_classes = [AllowAny]
@@ -209,6 +232,11 @@ class RegisterCompleteAPI(APIView):
 class UserProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="Get Logged In User Profile",
+        security=[{"Bearer": []}],
+        tags=["Profile"]
+    )
     def get(self, request):
         serializer = UserProfileSerializer(request.user)
         return Response(serializer.data)
