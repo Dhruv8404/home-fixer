@@ -31,12 +31,7 @@ media/
 htmlcov/
 .tox/
 
-# Docker
-Dockerfile
-docker-compose.yml
-
 # Misc
 .DS_Store
-*.md
 .env.local
 .env.*.local
