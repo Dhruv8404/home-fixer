@@ -6,3 +6,5 @@ psycopg2-binary
 gunicorn
 python-dotenv    
 django-cors-headers
+dj-database-url
+whitenoise
