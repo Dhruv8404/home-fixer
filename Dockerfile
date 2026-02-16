@@ -1,21 +1,37 @@
+# Use Python 3.11-slim as the base image
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
+# Set working directory
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+# Install system dependencies required for psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    postgresql-client \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip
-
+# Copy requirements.txt first for better caching
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application code
 COPY . .
 
+# Run database migrations
+RUN python manage.py migrate --noinput
+
+# Collect static files
 RUN python manage.py collectstatic --noinput
 
+# Expose port 8000
 EXPOSE 8000
 
-CMD ["gunicorn", "home_fixer.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+# Run Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "home_fixer.wsgi:application"]
