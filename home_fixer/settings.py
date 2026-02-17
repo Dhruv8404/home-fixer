@@ -47,7 +47,10 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",") if os.getenv("ALLOWED_HOSTS") else []
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "home-fixer-api.onrender.com"
+).split(",")
 
 
 
