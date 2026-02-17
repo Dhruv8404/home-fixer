@@ -36,16 +36,6 @@ def send_email_otp(email):
     print(f"🔢 OTP   : {otp}")
     print("====================================")
 
-    try:
-        send_mail(
-            subject="Your HomeFixer OTP",
-            message=f"Your OTP is {otp}. It is valid for {OTP_EXPIRY_MINUTES} minutes.",
-            from_email=settings.DEFAULT_FROM_EMAIL or "noreply@homefixer.com",
-            recipient_list=[email],
-            fail_silently=True,   # 🔥 IMPORTANT
-        )
-    except Exception as e:
-        logger.error(f"Email failed: {str(e)}")
 
     return otp
 
