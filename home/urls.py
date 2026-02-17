@@ -14,10 +14,13 @@ from .views import (
 
     CustomerProfileUpdateAPI,
     ProfileAPI,
-    VendorProfileUpdateAPI
+    VendorProfileUpdateAPI,
+    EmailPasswordLoginAPI
 )
 
 urlpatterns = [
+
+    path("login/",EmailPasswordLoginAPI.as_view()),
     #Logout
     path("auth/logout/", LogoutAPI.as_view()),
 

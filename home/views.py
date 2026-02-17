@@ -27,6 +27,39 @@ def get_tokens(user):
         "refresh": str(refresh),
     }
 
+from .serializers import EmailPasswordLoginSerializer
+from django.contrib.auth import authenticate
+
+class EmailPasswordLoginAPI(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_summary="Login with Email & Password",
+        request_body=EmailPasswordLoginSerializer,
+        tags=["Auth"]
+    )
+    def post(self, request):
+        serializer = EmailPasswordLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data["user"]
+
+        return Response({
+            "success": True,
+            "message": "Login successful",
+            "role": user.role,
+            "tokens": get_tokens(user),
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "phone": user.phone,
+            }
+        }, status=200)
+
+
+
+
 #============Logout API =============#
 
 class LogoutAPI(APIView):
