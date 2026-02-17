@@ -7,31 +7,40 @@ def create_default_users(apps, schema_editor):
     users = [
     {
         "email": "admin@gmail.com",
-        "password": make_password("Admin@123"),
-        "role": "admin",
         "phone": "9000000001",
+        "password": make_password("Admin@123"),
+        "role": "ADMIN",
+        "name": "Admin User",
         "is_staff": True,
         "is_superuser": True,
+        "is_verified": True,
     },
     {
         "email": "customer@gmail.com",
-        "password": make_password("Customer@123"),
-        "role": "customer",
         "phone": "9000000002",
+        "password": make_password("Customer@123"),
+        "role": "CUSTOMER",
+        "name": "Customer User",
+        "is_verified": True,
     },
     {
         "email": "serviceman@gmail.com",
-        "password": make_password("Service@123"),
-        "role": "serviceman",
         "phone": "9000000003",
+        "password": make_password("Service@123"),
+        "role": "SERVICEMAN",
+        "name": "Serviceman User",
+        "is_verified": True,
     },
     {
         "email": "vendor@gmail.com",
-        "password": make_password("Vendor@123"),
-        "role": "vendor",
         "phone": "9000000004",
+        "password": make_password("Vendor@123"),
+        "role": "VENDOR",
+        "name": "Vendor User",
+        "is_verified": True,
     },
 ]
+
 
 
     for user in users:
