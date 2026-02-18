@@ -174,7 +174,6 @@ class RegisterSendOTPAPI(APIView):
         send_email_otp(email)
         return Response({"message": "OTP sent for registration"})
 
-
 class RegisterVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
 
@@ -190,20 +189,12 @@ class RegisterVerifyOTPAPI(APIView):
         email = serializer.validated_data["email"]
         otp = serializer.validated_data["otp"]
 
-        otp_obj = EmailOTP.objects.filter(
-            email=email,
-            otp=otp,
-            is_verified=False
-        ).order_by("-created_at").first()
-
-        if not otp_obj:
+        # 🔥 Use utility function
+        if not verify_email_otp(email, otp):
             return Response(
                 {"detail": "Invalid or expired OTP"},
                 status=400
             )
-
-        otp_obj.is_verified = True
-        otp_obj.save()
 
         return Response({
             "message": "OTP verified successfully. Please complete registration."

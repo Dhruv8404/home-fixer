@@ -202,15 +202,16 @@ SIMPLE_JWT = {
 
 
 SWAGGER_SETTINGS = {
+    'USE_SESSION_AUTH': False,
+    'PERSIST_AUTH': True,   # 🔥 REQUIRED
+    'REFETCH_SCHEMA_WITH_AUTH': True,
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',
             'name': 'Authorization',
             'in': 'header',
-            'description': (
-                'JWT Authorization header using the Bearer scheme.\n\n'
-                'Example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."'
-            ),
+            'description': 'Enter: Bearer <your access token>',
         }
     },
 }
+
