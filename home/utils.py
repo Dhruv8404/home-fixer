@@ -52,7 +52,9 @@ def verify_email_otp(email, otp):
     if not record:
         return False
 
-    # ✅ OTP valid → delete it (IMPORTANT)
-    record.delete()
+    # ✅ Mark as verified instead of deleting
+    record.is_verified = True
+    record.save()
 
     return True
+

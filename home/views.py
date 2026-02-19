@@ -32,6 +32,7 @@ from django.contrib.auth import authenticate
 
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []  # No authentication required for email/password login
 
     @swagger_auto_schema(
         operation_summary="Login with Email & Password",
@@ -64,6 +65,7 @@ class EmailPasswordLoginAPI(APIView):
 
 class LogoutAPI(APIView):
     permission_classes = [IsAuthenticated]
+    authentication_classes = []  # No authentication required for logout since we are using refresh token
 
     @swagger_auto_schema(request_body=LogoutSerializer)
     def post(self, request):
@@ -91,6 +93,7 @@ class LogoutAPI(APIView):
 
 class LoginSendOTPAPI(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []  # No authentication required for sending OTP
 
     @swagger_auto_schema(request_body=SendOTPSerializer)
     def post(self, request):
@@ -113,6 +116,7 @@ class LoginSendOTPAPI(APIView):
 
 class LoginVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []  # No authentication required for OTP verification  
 
     @swagger_auto_schema(request_body=VerifyOTPSerializer)
     def post(self, request):
@@ -141,6 +145,7 @@ class LoginVerifyOTPAPI(APIView):
 
 class RegisterSendOTPAPI(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []  # No authentication required for registration OTP
 
     @swagger_auto_schema(
         operation_summary="Send Registration OTP",
@@ -176,7 +181,7 @@ class RegisterSendOTPAPI(APIView):
 
 class RegisterVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
-
+    authentication_classes = []  # No authentication required for OTP verification
     @swagger_auto_schema(
         operation_summary="Verify Registration OTP",
         request_body=VerifyOTPSerializer,
@@ -202,7 +207,7 @@ class RegisterVerifyOTPAPI(APIView):
 
 class RegisterCompleteAPI(APIView):
     permission_classes = [AllowAny]
-
+    authentication_classes = []  # No authentication required for completing registration
     @swagger_auto_schema(request_body=CompleteRegisterSerializer)
     def post(self, request):
         serializer = CompleteRegisterSerializer(data=request.data)
