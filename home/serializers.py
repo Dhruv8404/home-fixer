@@ -97,13 +97,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 #===========Customer, Serviceman, Vendor Profile Serializers ==========#
 
 class CustomerProfileSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False)
+
     class Meta:
         model = CustomerProfile
         fields = [
             "default_address",
             "default_lat",
             "default_long",
-            "profile_pic_url",
+            "profile_image",
         ]
 
 
@@ -116,6 +118,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             "current_long",
             "experience_years",
             "kyc_docs_url",
+            "profile_image",
         ]
 
 
@@ -130,6 +133,7 @@ class VendorProfileSerializer(serializers.ModelSerializer):
             "store_long",
             "opening_hours",
             "bank_account_details",
+            "profile_image",           
         ]
 
 

@@ -75,9 +75,12 @@ class CustomerProfile(models.Model):
     default_address = models.TextField(blank=True, null=True)
     default_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     default_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
-    profile_pic_url = models.URLField(max_length=2048, null=True, blank=True)
 
-
+    profile_image = models.ImageField(
+        upload_to="profiles/customers/",
+        null=True,
+        blank=True
+    )
 
 
 class ServicemanProfile(models.Model):
@@ -89,6 +92,11 @@ class ServicemanProfile(models.Model):
     kyc_docs_url = models.URLField(max_length=2048, null=True, blank=True)
     average_rating = models.FloatField(default=0.0)
 
+    profile_image = models.ImageField(
+        upload_to="profiles/servicemen/",
+        null=True,
+        blank=True
+    )
 
 
 class VendorProfile(models.Model):
@@ -101,6 +109,11 @@ class VendorProfile(models.Model):
     opening_hours = models.CharField(max_length=100, blank=True, null=True)
     bank_account_details = models.TextField(blank=True, null=True)
 
+    profile_image = models.ImageField(
+        upload_to="profiles/vendors/",
+        null=True,
+        blank=True
+    )
 
 
 

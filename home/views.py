@@ -19,6 +19,8 @@ from .serializers import (
 )
 from .utils import send_email_otp, verify_email_otp
 from rest_framework import status
+from rest_framework.parsers import MultiPartParser, FormParser
+
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
@@ -274,7 +276,7 @@ class UserProfileAPI(APIView):
 
 class CustomerProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
         request_body=CustomerProfileSerializer,
         responses={200: CustomerProfileSerializer}
@@ -302,6 +304,7 @@ class CustomerProfileAPI(APIView):
 
 class ServicemanProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)    
 
     @swagger_auto_schema(
         request_body=ServicemanProfileSerializer,
@@ -335,6 +338,7 @@ class ServicemanProfileAPI(APIView):
 
 class VendorProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
         request_body=VendorProfileSerializer,
@@ -366,7 +370,7 @@ class VendorProfileAPI(APIView):
 
 class SaveProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     def post(self, request):
         user = request.user
 
@@ -400,7 +404,7 @@ class SaveProfileAPI(APIView):
 
 class ProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
         operation_summary="Get logged-in user profile",
         responses={200: ProfileResponseSerializer}
@@ -437,11 +441,13 @@ class ProfileAPI(APIView):
 #=============Profile Update API =============#
 class CustomerProfileUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
-        request_body=CustomerProfileSerializer,
-        responses={200: CustomerProfileSerializer}
-    )
+    request_body=CustomerProfileSerializer,
+    consumes=["multipart/form-data"],
+    responses={200: CustomerProfileSerializer}
+)
+
     def put(self, request):
 
         if request.user.role != "CUSTOMER":
@@ -466,9 +472,10 @@ class CustomerProfileUpdateAPI(APIView):
 
 class ServicemanProfileUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
         request_body=ServicemanProfileSerializer,
+        consumes=["multipart/form-data"],
         responses={200: ServicemanProfileSerializer}
     )
     def put(self, request):
@@ -495,9 +502,10 @@ class ServicemanProfileUpdateAPI(APIView):
 
 class VendorProfileUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
         request_body=VendorProfileSerializer,
+        consumes=["multipart/form-data"],
         responses={200: VendorProfileSerializer}
     )
     def put(self, request):
