@@ -1,3 +1,6 @@
+from email.mime import image
+import cloudinary.uploader
+
 from rest_framework import serializers
 from .models import   User , CustomerProfile, ServicemanProfile, VendorProfile
 import re
@@ -97,7 +100,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
 #===========Customer, Serviceman, Vendor Profile Serializers ==========#
 
 class CustomerProfileSerializer(serializers.ModelSerializer):
-    profile_image = serializers.ImageField(required=False)
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CustomerProfile
@@ -106,10 +110,32 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
             "default_lat",
             "default_long",
             "profile_image",
+            "profile_image_url",
         ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+    def update(self, instance, validated_data):
+        new_image = validated_data.get("profile_image", None)
+
+        if new_image and instance.profile_image:
+            try:
+                public_id = instance.profile_image.public_id
+                cloudinary.uploader.destroy(public_id)
+            except Exception:
+                pass
+
+        return super().update(instance, validated_data)
+
+
 
 
 class ServicemanProfileSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = ServicemanProfile
         fields = [
@@ -119,10 +145,32 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             "experience_years",
             "kyc_docs_url",
             "profile_image",
+            "profile_image_url",
         ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+    def update(self, instance, validated_data):
+        new_image = validated_data.get("profile_image", None)
+
+        if new_image and instance.profile_image:
+            try:
+                public_id = instance.profile_image.public_id
+                cloudinary.uploader.destroy(public_id)
+            except Exception:
+                pass
+
+        return super().update(instance, validated_data)
+
+
 
 
 class VendorProfileSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = VendorProfile
         fields = [
@@ -133,8 +181,29 @@ class VendorProfileSerializer(serializers.ModelSerializer):
             "store_long",
             "opening_hours",
             "bank_account_details",
-            "profile_image",           
+            "profile_image",
+            "profile_image_url",
         ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+    def update(self, instance, validated_data):
+        new_image = validated_data.get("profile_image", None)
+
+        if new_image and instance.profile_image:
+            try:
+                public_id = instance.profile_image.public_id
+                cloudinary.uploader.destroy(public_id)
+            except Exception:
+                pass
+
+        return super().update(instance, validated_data)
+
+
+
+
 
 
 class ProfileResponseSerializer(serializers.Serializer):

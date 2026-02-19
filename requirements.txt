@@ -9,3 +9,5 @@ django-cors-headers
 dj-database-url
 whitenoise
 pillow
+cloudinary
+django-cloudinary-storage

@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
-
+from cloudinary.models import CloudinaryField
 
 #=============user model manager==================
 class UserManager(BaseUserManager):
@@ -76,8 +76,9 @@ class CustomerProfile(models.Model):
     default_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     default_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
 
-    profile_image = models.ImageField(
-        upload_to="profiles/customers/",
+    profile_image = CloudinaryField(
+        'image',
+        folder='home_fixer/customers/',
         null=True,
         blank=True
     )
@@ -92,8 +93,9 @@ class ServicemanProfile(models.Model):
     kyc_docs_url = models.URLField(max_length=2048, null=True, blank=True)
     average_rating = models.FloatField(default=0.0)
 
-    profile_image = models.ImageField(
-        upload_to="profiles/servicemen/",
+    profile_image = CloudinaryField(
+        'image',
+        folder='home_fixer/servicemen/',
         null=True,
         blank=True
     )
@@ -109,12 +111,12 @@ class VendorProfile(models.Model):
     opening_hours = models.CharField(max_length=100, blank=True, null=True)
     bank_account_details = models.TextField(blank=True, null=True)
 
-    profile_image = models.ImageField(
-        upload_to="profiles/vendors/",
+    profile_image = CloudinaryField(
+        'image',
+        folder='home_fixer/vendors/',
         null=True,
         blank=True
     )
-
 
 
 class Category(models.Model):
@@ -186,7 +188,13 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     stock_quantity = models.IntegerField(default=0)
     min_stock_alert = models.IntegerField(default=5)
-    image_url = models.URLField(max_length=2048, null=True, blank=True)
+    image = CloudinaryField(
+    'image',
+    folder='home_fixer/products/',
+    null=True,
+    blank=True
+)
+
     description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

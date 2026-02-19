@@ -278,9 +278,11 @@ class CustomerProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
-        request_body=CustomerProfileSerializer,
-        responses={200: CustomerProfileSerializer}
-    )
+    request_body=CustomerProfileSerializer,
+    consumes=["multipart/form-data"],
+    responses={200: CustomerProfileSerializer}
+)
+
     def post(self, request):
         if request.user.role != "CUSTOMER":
             return Response(
