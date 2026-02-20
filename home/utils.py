@@ -5,6 +5,7 @@ from django.core.mail import send_mail
 from django.utils import timezone
 import logging
 from .models import EmailOTP
+from math import radians, cos, sin, asin, sqrt
 
 OTP_EXPIRY_MINUTES = 5
 
@@ -58,3 +59,12 @@ def verify_email_otp(email, otp):
 
     return True
 
+
+
+
+def distance_km(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlon/2)**2
+    return R * 2 * asin(sqrt(a))

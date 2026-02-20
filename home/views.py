@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from .models import User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP
+from .models import User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
     SendOTPSerializer,
     VerifyOTPSerializer,
@@ -16,11 +16,13 @@ from .serializers import (
     CustomerProfileSerializer,
     ProfileResponseSerializer,
     UniversalProfileUpdateSerializer,
+    CategorySerializer,
+    ServicemanSerializer
 )
 from .utils import send_email_otp, verify_email_otp
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
-
+from django.shortcuts import get_object_or_404
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
@@ -529,4 +531,164 @@ class VendorProfileUpdateAPI(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        return Response(serializer.data)
+
+
+
+#=============Category and Service APIs =============#
+class CategoryCreateAPI(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_id="categories_create",
+        request_body=CategorySerializer,
+        responses={201: CategorySerializer}
+    )
+    def post(self, request):
+        serializer = CategorySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=201)
+
+class CategoryDetailAPI(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_id="categories_update",
+        request_body=CategorySerializer,
+        responses={200: CategorySerializer}
+    )
+    def put(self, request, pk):
+        category = Category.objects.get(pk=pk, is_active=True)
+        serializer = CategorySerializer(category, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_id="categories_delete",
+        responses={200: "Deleted"}
+    )
+    def delete(self, request, pk):
+        category = Category.objects.get(pk=pk)
+        category.is_active = False
+        category.save()
+        return Response({"message": "Category soft deleted"})
+
+
+#=============Soft Delete APIs for Service and Product =============#
+class ServiceSoftDeleteAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def delete(self, request, pk):
+        service = get_object_or_404(Service, pk=pk)
+        service.is_active = False
+        service.save()
+        return Response({"message": "Service soft deleted"})
+
+
+class ProductSoftDeleteAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def delete(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        product.is_active = False
+        product.save()
+        return Response({"message": "Product soft deleted"})
+
+#=============Nearby Servicemen API =============#
+from rest_framework.exceptions import ValidationError
+from .utils import distance_km
+from .models import Serviceman
+from home.models import Category
+
+
+class NearbyServicemanAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    CATEGORY_CHOICES = sorted(
+    set(Category.objects.values_list("name", flat=True))
+)
+
+
+    @swagger_auto_schema(
+        operation_summary="Get nearby servicemen within 10 km",
+        manual_parameters=[
+            openapi.Parameter(
+                "lat",
+                openapi.IN_QUERY,
+                description="Latitude of customer location",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "lon",
+                openapi.IN_QUERY,
+                description="Longitude of customer location",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "category_id",
+                openapi.IN_QUERY,
+                description="Service category",
+                type=openapi.TYPE_INTEGER,
+                enum=CATEGORY_CHOICES,
+                required=False,
+            ),
+        ],
+        responses={200: "List of nearby servicemen"}
+    )
+    def get(self, request):
+        lat = float(request.query_params.get("lat"))
+        lon = float(request.query_params.get("lon"))
+        category = request.query_params.get("category")
+
+        # ✅ Explicit validation
+        if lat is None:
+            raise ValidationError({"lat": "Latitude is required"})
+        if lon is None:
+            raise ValidationError({"lon": "Longitude is required"})
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            raise ValidationError({"detail": "Latitude and longitude must be numbers"})
+
+        nearby = []
+
+        qs = Serviceman.objects.filter(is_active=True)
+
+        if category:
+            qs = qs.filter(category__name__iexact=category)
+
+        nearby = []
+        for s in qs:
+            dist = distance_km(lat, lon, s.latitude, s.longitude)
+            if dist <= 10:
+                nearby.append({
+                    "id": s.id,
+                    "name": s.name,
+                    "category": s.category.name,
+                    "distance_km": round(dist, 2),
+                })
+
+        return Response(nearby)
+
+        #Servicemen List API
+class ServicemenListAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        category = request.query_params.get("category")
+
+        queryset = Serviceman.objects.filter(is_active=True)
+
+        if category:
+            queryset = queryset.filter(
+                category__name__iexact=category
+            )
+
+        serializer = ServicemanSerializer(queryset, many=True)
         return Response(serializer.data)

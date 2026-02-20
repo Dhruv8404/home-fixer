@@ -1,4 +1,5 @@
 from django.urls import path
+from . import views
 from .views import (
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
@@ -15,7 +16,11 @@ from .views import (
     CustomerProfileUpdateAPI,
     ProfileAPI,
     VendorProfileUpdateAPI,
-    EmailPasswordLoginAPI
+    EmailPasswordLoginAPI,
+    CategoryCreateAPI,
+    CategoryDetailAPI,
+    NearbyServicemanAPI,
+    
 )
 
 urlpatterns = [
@@ -44,6 +49,19 @@ urlpatterns = [
     path("profile/customer/update/", CustomerProfileUpdateAPI.as_view()),
     path("profile/serviceman/update/", ServicemanProfileUpdateAPI.as_view()),
     path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),
+
+   # Category APIs
+    path("categories/", CategoryCreateAPI.as_view()),          # POST
+    path("categories/<int:pk>/", CategoryDetailAPI.as_view()), # PUT, DELETE
+
+    path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view()),
+    path("products/<int:pk>/delete/", views.ProductSoftDeleteAPI.as_view()),
+
+    # Nearby Serviceman API
+    path("servicemen/nearby/", NearbyServicemanAPI.as_view()),
+    path("servicemen/", views.ServicemenListAPI.as_view()),
+
+
 
 
 

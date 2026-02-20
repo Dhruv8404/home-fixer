@@ -120,11 +120,20 @@ class VendorProfile(models.Model):
 
 
 class Category(models.Model):
-    TYPE_CHOICES = [('SERVICE', 'Service'), ('PRODUCT', 'Product')]
+    TYPE_CHOICES = (
+        ("SERVICE", "Service"),
+        ("PRODUCT", "Product"),
+    )
 
     name = models.CharField(max_length=100)
-    icon_url = models.URLField(max_length=2048, null=True, blank=True)
-    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    category_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES
+    )
+
+    def __str__(self):
+        return f"{self.name} ({self.category_type})"
+
 
 
 
@@ -133,7 +142,16 @@ class Service(models.Model):
     name = models.CharField(max_length=255)
     base_price = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+class Serviceman(models.Model):
+    name = models.CharField(max_length=100)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    is_active = models.BooleanField(default=True)
+#End of Changes#
 
 
 

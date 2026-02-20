@@ -235,3 +235,34 @@ class UniversalProfileUpdateSerializer(serializers.Serializer):
     store_long = serializers.DecimalField(max_digits=11, decimal_places=8, required=False)
     opening_hours = serializers.CharField(required=False)
     bank_account_details = serializers.CharField(required=False)
+
+
+#Added Serializers for Category, Service and Product models#
+from .models import Category, Service, Product
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = "__all__"
+
+
+class ServiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Service
+        fields = "__all__"
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = "__all__"
+
+# Serviceman
+from .models import Serviceman
+ 
+class ServicemanSerializer(serializers.ModelSerializer):
+    category = serializers.CharField(source="category.name")
+
+    class Meta:
+        model = Serviceman
+        fields = ["id", "name", "category", "latitude", "longitude"]
