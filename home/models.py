@@ -82,7 +82,7 @@ class CustomerProfile(models.Model):
         null=True,
         blank=True
     )
-
+#----
 
 class ServicemanProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
