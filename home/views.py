@@ -558,57 +558,32 @@ from home.models import Category
 class NearbyServicemanAPI(APIView):
     permission_classes = [IsAuthenticated]
 
-    CATEGORY_CHOICES = sorted(
-    set(Category.objects.values_list("name", flat=True))
-)
-
-
     @swagger_auto_schema(
-    operation_summary="Get Nearby Servicemen (Within 10 KM)",
-    operation_description="""
-Returns approved and active servicemen within 10 KM radius.
-""",
-    manual_parameters=[
-        openapi.Parameter(
-            "lat",
-            openapi.IN_QUERY,
-            description="Customer latitude",
-            type=openapi.TYPE_NUMBER,
-            required=True,
-        ),
-        openapi.Parameter(
-            "lon",
-            openapi.IN_QUERY,
-            description="Customer longitude",
-            type=openapi.TYPE_NUMBER,
-            required=True,
-        ),
-        openapi.Parameter(
-            "category",
-            openapi.IN_QUERY,
-            description="Optional category name filter",
-            type=openapi.TYPE_STRING,
-            required=False,
-        ),
-    ],
-    responses={
-        200: openapi.Response(
-            description="Nearby servicemen list",
-            examples={
-                "application/json": [
-                    {
-                        "id": 1,
-                        "name": "Ravi Kumar",
-                        "category": "Electrician",
-                        "distance_km": 3.2
-                    }
-                ]
-            }
-        )
-    },
-    security=[{"Bearer": []}],
-    tags=["Servicemen"]
-)
+        operation_summary="Get nearby servicemen within 10 km",
+        manual_parameters=[
+            openapi.Parameter(
+                "lat",
+                openapi.IN_QUERY,
+                description="Latitude",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "lon",
+                openapi.IN_QUERY,
+                description="Longitude",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "category",
+                openapi.IN_QUERY,
+                description="Category name",
+                type=openapi.TYPE_STRING,
+                required=False,
+            ),
+        ],
+    )
     def get(self, request):
         lat = float(request.query_params.get("lat"))
         lon = float(request.query_params.get("lon"))
