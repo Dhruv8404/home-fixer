@@ -23,15 +23,8 @@ services:
       "
     ports:
       - "8000:8000"
-    environment:
-      DEBUG: "False"
-      DATABASE_URL: postgres://postgres:postgres@db:5432/home_fixer
-      SECRET_KEY: your-super-long-random-secret-key
-      ALLOWED_HOSTS: localhost,127.0.0.1
-      EMAIL_HOST: smtp.gmail.com
-      EMAIL_PORT: "587"
-      EMAIL_HOST_USER: your-email@gmail.com
-      EMAIL_HOST_PASSWORD: your-app-password
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy
