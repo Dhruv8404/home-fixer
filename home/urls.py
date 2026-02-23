@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .views import (
+    AdminVendorControlAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
     RegisterSendOTPAPI,
@@ -17,11 +18,20 @@ from .views import (
     ProfileAPI,
     VendorProfileUpdateAPI,
     EmailPasswordLoginAPI,
-    CategoryCreateAPI,
-    CategoryDetailAPI,
     NearbyServicemanAPI,
+    PendingVendorsAPI,
+    PendingServicemenAPI,
+    AdminServicemanControlAPI,
     
 )
+
+
+from .admin_views import (
+    AdminUserManagementAPI,
+    AdminUserDetailAPI,
+    CategoryListAPI,
+    CategoryCreateAPI,
+    CategoryDetailAPI)
 
 urlpatterns = [
 
@@ -50,9 +60,6 @@ urlpatterns = [
     path("profile/serviceman/update/", ServicemanProfileUpdateAPI.as_view()),
     path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),
 
-   # Category APIs
-    path("categories/", CategoryCreateAPI.as_view()),          # POST
-    path("categories/<int:pk>/", CategoryDetailAPI.as_view()), # PUT, DELETE
 
     path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view()),
     path("products/<int:pk>/delete/", views.ProductSoftDeleteAPI.as_view()),
@@ -62,7 +69,31 @@ urlpatterns = [
     path("servicemen/", views.ServicemenListAPI.as_view()),
 
 
+    # Admin APIs
+    path("admin/users/", AdminUserManagementAPI.as_view()),          # GET, POST
+    path("admin/users/<int:pk>/", AdminUserDetailAPI.as_view()),     
+  
+  
+    # Categories
+    path("categories/", CategoryListAPI.as_view()),          # GET all categories
+    path("admin/categories/create", CategoryCreateAPI.as_view()),    # POST create category
+    path("admin/categories/<int:pk>/", CategoryDetailAPI.as_view()),  #
 
+
+    # ===============================
+    # ADMIN APPROVAL APIs
+    # ===============================
+
+    path("admin/servicemen/pending/", PendingServicemenAPI.as_view()),
+    path("admin/vendors/pending/", PendingVendorsAPI.as_view()),
+
+    path("admin/servicemen/<int:pk>/control/", AdminServicemanControlAPI.as_view()),
+    path("admin/vendors/<int:pk>/control/", AdminVendorControlAPI.as_view()),
+
+    #--------get all customers, servicemen and vendors for admin dashboard --------
+    path("admin/customers/", views.AdminCustomerListAPI.as_view()),
+    path("admin/servicemen/all/", views.AdminServicemanListAPI.as_view()),
+    path("admin/vendors/all/", views.AdminVendorListAPI.as_view()),
 
 
 ]

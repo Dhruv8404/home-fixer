@@ -122,7 +122,7 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
         if new_image and instance.profile_image:
             try:
-                public_id = instance.profile_image.public_id
+                public_id = instance.profile_image.public_id if instance.profile_image else None
                 cloudinary.uploader.destroy(public_id)
             except Exception:
                 pass
@@ -133,20 +133,26 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
 
 class ServicemanProfileSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="user_id", read_only=True)
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ServicemanProfile
         fields = [
+            "id",
             "is_online",
+            "is_approved",   # ✅ ADD THIS
+            "is_active",   # ✅ ADD THIS
             "current_lat",
             "current_long",
             "experience_years",
             "kyc_docs_url",
+            "average_rating",
             "profile_image",
             "profile_image_url",
         ]
+        read_only_fields = ["is_approved"]  # 🔒 Only admin can change
 
     def get_profile_image_url(self, obj):
         if obj.profile_image:
@@ -163,45 +169,105 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
                 pass
 
         return super().update(instance, validated_data)
-
 
 
 
 class VendorProfileSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="user_id", read_only=True)    
+    # ========= Image Upload =========
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
+
+    # ========= Documents Upload =========
+    gst_certificate = serializers.FileField(required=False, write_only=True)
+    store_registration = serializers.FileField(required=False, write_only=True)
+    id_proof = serializers.FileField(required=False, write_only=True)
+
+    gst_certificate_url = serializers.SerializerMethodField(read_only=True)
+    store_registration_url = serializers.SerializerMethodField(read_only=True)
+    id_proof_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = VendorProfile
         fields = [
+            "id",
+            "is_approved",   # ✅ ADD THIS
+            "is_active",   # ✅ ADD THIS
+            # ================= BUSINESS =================
             "business_name",
             "gst_number",
-            "store_address",
+            "contact_number",
+            "business_email",
+            "opening_time",
+            "closing_time",
+            "city",
+            "state",
+            "full_address",
             "store_lat",
             "store_long",
-            "opening_hours",
-            "bank_account_details",
+
+            # ================= BANK =================
+            "account_holder_name",
+            "bank_name",
+            "account_number",
+            "ifsc_code",
+            "upi_id",
+
+            # ================= IMAGE =================
             "profile_image",
             "profile_image_url",
-        ]
 
+            # ================= DOCUMENTS =================
+            "gst_certificate",
+            "store_registration",
+            "id_proof",
+            "gst_certificate_url",
+            "store_registration_url",
+            "id_proof_url",
+        ]
+        read_only_fields = ["is_approved","is_active"]  # 🔒 Only admin can change
+    # ================= IMAGE URL =================
     def get_profile_image_url(self, obj):
         if obj.profile_image:
             return obj.profile_image.url
         return None
-    def update(self, instance, validated_data):
-        new_image = validated_data.get("profile_image", None)
 
-        if new_image and instance.profile_image:
-            try:
-                public_id = instance.profile_image.public_id
-                cloudinary.uploader.destroy(public_id)
-            except Exception:
-                pass
+    # ================= DOCUMENT URLS =================
+    def get_gst_certificate_url(self, obj):
+        if obj.gst_certificate:
+            return obj.gst_certificate.url
+        return None
+
+    def get_store_registration_url(self, obj):
+        if obj.store_registration:
+            return obj.store_registration.url
+        return None
+
+    def get_id_proof_url(self, obj):
+        if obj.id_proof:
+            return obj.id_proof.url
+        return None
+
+    # ================= SAFE UPDATE (Delete Old Cloudinary Files) =================
+    def update(self, instance, validated_data):
+        file_fields = [
+            "profile_image",
+            "gst_certificate",
+            "store_registration",
+            "id_proof",
+        ]
+
+        for field in file_fields:
+            new_file = validated_data.get(field, None)
+            old_file = getattr(instance, field)
+
+            if new_file and old_file:
+                try:
+                    cloudinary.uploader.destroy(old_file.public_id)
+                except Exception:
+                    pass
 
         return super().update(instance, validated_data)
-
-
 
 
 

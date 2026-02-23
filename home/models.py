@@ -82,11 +82,14 @@ class CustomerProfile(models.Model):
         null=True,
         blank=True
     )
-#----
+#---------serviceman profile changes start here------------------#
 
 class ServicemanProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
+
     is_online = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=False)   # ✅ NEW FIELD
+    is_active = models.BooleanField(default=True)   # ✅ ADD THIS
     current_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     current_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
     experience_years = models.IntegerField(default=0)
@@ -100,23 +103,77 @@ class ServicemanProfile(models.Model):
         blank=True
     )
 
-
 class VendorProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
+    is_approved = models.BooleanField(default=False)  # ✅ NEW FIELD
+    # ========================
+    # BUSINESS DETAILS
+    # ========================
     business_name = models.CharField(max_length=255)
     gst_number = models.CharField(max_length=50, blank=True, null=True)
-    store_address = models.TextField(blank=True, null=True)
+
+    contact_number = models.CharField(max_length=20, blank=True, null=True)
+    business_email = models.EmailField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)   # ✅ ADD THIS
+    opening_time = models.TimeField(blank=True, null=True)
+    closing_time = models.TimeField(blank=True, null=True)
+
+    city = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=100, blank=True, null=True)
+
+    full_address = models.TextField(blank=True, null=True)
+
     store_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     store_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
-    opening_hours = models.CharField(max_length=100, blank=True, null=True)
-    bank_account_details = models.TextField(blank=True, null=True)
 
+    # ========================
+    # BANK DETAILS
+    # ========================
+    account_holder_name = models.CharField(max_length=255, blank=True, null=True)
+    bank_name = models.CharField(max_length=255, blank=True, null=True)
+    account_number = models.CharField(max_length=50, blank=True, null=True)
+    ifsc_code = models.CharField(max_length=20, blank=True, null=True)
+    upi_id = models.CharField(max_length=100, blank=True, null=True)
+
+    # ========================
+    # DOCUMENTS (Cloudinary)
+    # ========================
+    gst_certificate = CloudinaryField(
+        'file',
+        folder='home_fixer/vendor_documents/gst/',
+        null=True,
+        blank=True
+    )
+
+    store_registration = CloudinaryField(
+        'file',
+        folder='home_fixer/vendor_documents/store_registration/',
+        null=True,
+        blank=True
+    )
+
+    id_proof = CloudinaryField(
+        'file',
+        folder='home_fixer/vendor_documents/id_proof/',
+        null=True,
+        blank=True
+    )
+
+    # ========================
+    # PROFILE IMAGE
+    # ========================
     profile_image = CloudinaryField(
         'image',
         folder='home_fixer/vendors/',
         null=True,
         blank=True
     )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.business_name
 
 
 class Category(models.Model):

@@ -23,6 +23,8 @@ from .utils import send_email_otp, verify_email_otp
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
+from .permissions import IsAdminOrCustomer
+
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
@@ -69,27 +71,17 @@ class EmailPasswordLoginAPI(APIView):
 
 class LogoutAPI(APIView):
     permission_classes = [IsAuthenticated]
-    authentication_classes = []  # No authentication required for logout since we are using refresh token
 
     @swagger_auto_schema(request_body=LogoutSerializer)
     def post(self, request):
-        serializer = LogoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            token = RefreshToken(serializer.validated_data["refresh"])
-            token.blacklist()
-        except Exception:
-            return Response(
-                {"detail": "Invalid or expired refresh token"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        return Response(
-            {"success": True, "message": "Logged out successfully"},
-            status=status.HTTP_200_OK
+        response = Response(
+            {"success": True, "message": "Logged out successfully"}
         )
 
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+
+        return response
 
 
 
@@ -346,6 +338,7 @@ class VendorProfileAPI(APIView):
 
     @swagger_auto_schema(
         request_body=VendorProfileSerializer,
+        consumes=["multipart/form-data"],
         responses={200: VendorProfileSerializer}
     )
     def post(self, request):
@@ -535,47 +528,6 @@ class VendorProfileUpdateAPI(APIView):
 
 
 
-#=============Category and Service APIs =============#
-class CategoryCreateAPI(APIView):
-    permission_classes = [AllowAny]
-
-    @swagger_auto_schema(
-        operation_id="categories_create",
-        request_body=CategorySerializer,
-        responses={201: CategorySerializer}
-    )
-    def post(self, request):
-        serializer = CategorySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=201)
-
-class CategoryDetailAPI(APIView):
-    permission_classes = [AllowAny]
-
-    @swagger_auto_schema(
-        operation_id="categories_update",
-        request_body=CategorySerializer,
-        responses={200: CategorySerializer}
-    )
-    def put(self, request, pk):
-        category = Category.objects.get(pk=pk, is_active=True)
-        serializer = CategorySerializer(category, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
-
-    @swagger_auto_schema(
-        operation_id="categories_delete",
-        responses={200: "Deleted"}
-    )
-    def delete(self, request, pk):
-        category = Category.objects.get(pk=pk)
-        category.is_active = False
-        category.save()
-        return Response({"message": "Category soft deleted"})
-
-
 #=============Soft Delete APIs for Service and Product =============#
 class ServiceSoftDeleteAPI(APIView):
     permission_classes = [AllowAny]
@@ -612,33 +564,51 @@ class NearbyServicemanAPI(APIView):
 
 
     @swagger_auto_schema(
-        operation_summary="Get nearby servicemen within 10 km",
-        manual_parameters=[
-            openapi.Parameter(
-                "lat",
-                openapi.IN_QUERY,
-                description="Latitude of customer location",
-                type=openapi.TYPE_NUMBER,
-                required=True,
-            ),
-            openapi.Parameter(
-                "lon",
-                openapi.IN_QUERY,
-                description="Longitude of customer location",
-                type=openapi.TYPE_NUMBER,
-                required=True,
-            ),
-            openapi.Parameter(
-                "category_id",
-                openapi.IN_QUERY,
-                description="Service category",
-                type=openapi.TYPE_INTEGER,
-                enum=CATEGORY_CHOICES,
-                required=False,
-            ),
-        ],
-        responses={200: "List of nearby servicemen"}
-    )
+    operation_summary="Get Nearby Servicemen (Within 10 KM)",
+    operation_description="""
+Returns approved and active servicemen within 10 KM radius.
+""",
+    manual_parameters=[
+        openapi.Parameter(
+            "lat",
+            openapi.IN_QUERY,
+            description="Customer latitude",
+            type=openapi.TYPE_NUMBER,
+            required=True,
+        ),
+        openapi.Parameter(
+            "lon",
+            openapi.IN_QUERY,
+            description="Customer longitude",
+            type=openapi.TYPE_NUMBER,
+            required=True,
+        ),
+        openapi.Parameter(
+            "category",
+            openapi.IN_QUERY,
+            description="Optional category name filter",
+            type=openapi.TYPE_STRING,
+            required=False,
+        ),
+    ],
+    responses={
+        200: openapi.Response(
+            description="Nearby servicemen list",
+            examples={
+                "application/json": [
+                    {
+                        "id": 1,
+                        "name": "Ravi Kumar",
+                        "category": "Electrician",
+                        "distance_km": 3.2
+                    }
+                ]
+            }
+        )
+    },
+    security=[{"Bearer": []}],
+    tags=["Servicemen"]
+)
     def get(self, request):
         lat = float(request.query_params.get("lat"))
         lon = float(request.query_params.get("lon"))
@@ -658,8 +628,11 @@ class NearbyServicemanAPI(APIView):
 
         nearby = []
 
-        qs = Serviceman.objects.filter(is_active=True)
-
+        qs = Serviceman.objects.filter(
+        is_active=True,
+        servicemanprofile__is_approved=True,
+        servicemanprofile__is_active=True
+    )
         if category:
             qs = qs.filter(category__name__iexact=category)
 
@@ -676,19 +649,318 @@ class NearbyServicemanAPI(APIView):
 
         return Response(nearby)
 
-        #Servicemen List API
-class ServicemenListAPI(APIView):
-    permission_classes = [IsAuthenticated]
+#----------------Servicemen List API-----------------
 
+class ServicemenListAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminOrCustomer]
+
+    @swagger_auto_schema(
+    operation_summary="List Approved & Active Servicemen",
+    operation_description="""
+Returns only servicemen where:
+- Serviceman.is_active = True
+- ServicemanProfile.is_active = True
+- ServicemanProfile.is_approved = True
+
+Optional filter by category.
+""",
+    manual_parameters=[
+        openapi.Parameter(
+            "category",
+            openapi.IN_QUERY,
+            description="Filter by category name",
+            type=openapi.TYPE_STRING
+        )
+    ],
+    responses={
+        200: ServicemanSerializer(many=True)
+    },
+    security=[{"Bearer": []}],
+    tags=["Servicemen"]
+)
     def get(self, request):
         category = request.query_params.get("category")
 
-        queryset = Serviceman.objects.filter(is_active=True)
+        queryset = Serviceman.objects.filter(
+            is_active=True,
+            servicemanprofile__is_active=True,
+            servicemanprofile__is_approved=True
+        )
 
         if category:
-            queryset = queryset.filter(
-                category__name__iexact=category
-            )
+            queryset = queryset.filter(category__name__iexact=category)
 
         serializer = ServicemanSerializer(queryset, many=True)
         return Response(serializer.data)
+
+
+from .permissions import IsAdminRole
+class AdminServicemanControlAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    @swagger_auto_schema(
+    operation_summary="Admin: Approve / Deactivate Serviceman",
+    operation_description="""
+Admin can:
+
+• Approve Serviceman (is_approved = true)
+• Deactivate Serviceman (is_active = false)
+• Reactivate Serviceman (is_active = true)
+
+Only ADMIN role allowed.
+""",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            "is_approved": openapi.Schema(
+                type=openapi.TYPE_BOOLEAN,
+                description="Approve or reject serviceman"
+            ),
+            "is_active": openapi.Schema(
+                type=openapi.TYPE_BOOLEAN,
+                description="Activate or deactivate serviceman"
+            ),
+        },
+        example={
+            "is_approved": True,
+            "is_active": True
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Serviceman updated successfully",
+            examples={
+                "application/json": {
+                    "id": 5,
+                    "is_approved": True,
+                    "is_active": True,
+                    "message": "Serviceman updated successfully"
+                }
+            }
+        ),
+        404: "Serviceman not found",
+        403: "Admin access required"
+    },
+    security=[{"Bearer": []}],
+    tags=["Admin - Serviceman Control"]
+)
+
+    
+    def patch(self, request, pk):
+        profile = get_object_or_404(
+            ServicemanProfile,
+            pk=pk,
+            is_active=True
+        )
+
+        allowed_fields = ["is_approved", "is_active"]
+
+        for field in allowed_fields:
+            if field in request.data:
+                setattr(profile, field, request.data[field])
+
+        profile.save()
+
+        return Response({
+            "id": profile.pk,
+            "is_approved": profile.is_approved,
+            "is_active": profile.is_active,
+            "message": "Serviceman updated successfully"
+        })
+    def delete(self, request, pk):
+        profile = get_object_or_404(
+            ServicemanProfile,
+            pk=pk,
+            is_active=True
+        )
+
+        profile.is_active = False
+        profile.save()
+
+        return Response({
+            "id": profile.pk,
+            "message": "Serviceman soft deleted successfully"
+        })    
+
+class AdminVendorControlAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+    operation_summary="Admin: Approve / Deactivate Vendor",
+    operation_description="""
+Admin can:
+
+• Approve Vendor (is_approved = true)
+• Deactivate Vendor (is_active = false)
+• Reactivate Vendor (is_active = true)
+
+Only ADMIN role allowed.
+""",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            "is_approved": openapi.Schema(
+                type=openapi.TYPE_BOOLEAN,
+                description="Approve or reject vendor"
+            ),
+            "is_active": openapi.Schema(
+                type=openapi.TYPE_BOOLEAN,
+                description="Activate or deactivate vendor"
+            ),
+        },
+        example={
+            "is_approved": True,
+            "is_active": True
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Vendor updated successfully",
+            examples={
+                "application/json": {
+                    "id": 3,
+                    "is_approved": True,
+                    "is_active": True,
+                    "message": "Vendor updated successfully"
+                }
+            }
+        )
+    },
+    security=[{"Bearer": []}],
+    tags=["Admin - Vendor Control"]
+)
+    def patch(self, request, pk):
+        profile = get_object_or_404(
+            VendorProfile,
+            pk=pk,
+            is_active=True
+        )
+
+        allowed_fields = ["is_approved", "is_active"]
+
+        for field in allowed_fields:
+            if field in request.data:
+                setattr(profile, field, request.data[field])
+
+        profile.save()
+
+        return Response({
+            "id": profile.pk,
+            "is_approved": profile.is_approved,
+            "is_active": profile.is_active,
+            "message": "Vendor updated successfully"
+        })
+
+    def delete(self, request, pk):
+        profile = get_object_or_404(
+            VendorProfile,
+            pk=pk,
+            is_active=True
+        )
+
+        profile.is_active = False
+        profile.save()
+
+        return Response({
+            "id": profile.pk,
+            "message": "Vendor soft deleted successfully"
+        })
+
+
+class PendingVendorsAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+    operation_summary="Admin: List Pending Vendors",
+    operation_description="""
+Returns all vendors where:
+- is_approved = False
+- is_active = True
+""",
+    responses={
+        200: VendorProfileSerializer(many=True)
+    },
+    security=[{"Bearer": []}],
+    tags=["Admin - Approval"]
+)
+    def get(self, request):
+        vendors = VendorProfile.objects.filter(
+            is_approved=False,
+            is_active=True
+        )
+
+        serializer = VendorProfileSerializer(vendors, many=True)
+        return Response(serializer.data)
+    
+class PendingServicemenAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+    operation_summary="Admin: List Pending Servicemen",
+    operation_description="""
+Returns all servicemen where:
+- is_approved = False
+- is_active = True
+""",
+    responses={
+        200: ServicemanProfileSerializer(many=True)
+    },
+    security=[{"Bearer": []}],
+    tags=["Admin - Approval"]
+)
+    def get(self, request):
+        servicemen = ServicemanProfile.objects.filter(
+            is_approved=False,
+            is_active=True
+        )
+
+        serializer = ServicemanProfileSerializer(servicemen, many=True)
+        return Response(serializer.data)
+
+
+class AdminCustomerListAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get All Customers",
+        operation_description="Returns all users with role CUSTOMER.",
+        responses={200: UserProfileSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Admin - Users"]
+    )
+    def get(self, request):
+        customers = User.objects.filter(role="CUSTOMER")
+        serializer = UserProfileSerializer(customers, many=True)
+        return Response(serializer.data)
+
+
+
+class AdminServicemanListAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get All Servicemen",
+        operation_description="Returns all servicemen with profile details.",
+        responses={200: ServicemanProfileSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Admin - Users"]
+    )
+    def get(self, request):
+        servicemen = ServicemanProfile.objects.select_related("user")
+        serializer = ServicemanProfileSerializer(servicemen, many=True)
+        return Response(serializer.data)
+    
+
+class AdminVendorListAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get All Vendors",
+        operation_description="Returns all vendor profiles.",
+        responses={200: VendorProfileSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Admin - Users"]
+    )
+    def get(self, request):
+        vendors = VendorProfile.objects.select_related("user")
+        serializer = VendorProfileSerializer(vendors, many=True)
+        return Response(serializer.data)    
