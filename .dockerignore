@@ -26,12 +26,25 @@ db.sqlite3
 staticfiles/
 media/
 
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+entrypoint.sh
+
+# Documentation
+README.md
+*.md
+
+# Environment
+.env
+.env.local
+
 # Testing
 .coverage
 htmlcov/
 .tox/
 
 # Misc
+*.cache
 .DS_Store
-.env.local
-.env.*.local

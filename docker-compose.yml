@@ -1,33 +1,48 @@
+version: '3.8'
+
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
+    container_name: homefixer_db
     environment:
-      POSTGRES_DB: home_fixer
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DB_NAME:-homefixer}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-newpassword}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   web:
     build: .
-    command: >
-      sh -c "
-      python manage.py migrate &&
-      python manage.py collectstatic --noinput &&
-      gunicorn home_fixer.wsgi:application --bind 0.0.0.0:8000 --workers 3
-      "
+    container_name: homefixer_web
+    command: gunicorn home_fixer.wsgi:application --bind 0.0.0.0:8000 --workers 4
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - ./media:/app/media
     ports:
       - "8000:8000"
-    env_file:
-      - .env
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-newpassword}@db:5432/${DB_NAME:-homefixer}
+      - DB_HOST=db
+      - DB_NAME=${DB_NAME:-homefixer}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-newpassword}
+      - DB_PORT=5432
+      - SECRET_KEY=${SECRET_KEY:-django-insecure-u%7rdl^!a2bz&u89$6eyzwp+_bo+-e0dgnt45p3ip2q*t7zdvy}
+      - DEBUG=${DEBUG:-False}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  static_volume:
