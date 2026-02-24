@@ -15,11 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 🔥 DO NOT hardcode SECRET_KEY here
-# 🔥 DO NOT run collectstatic here
-
 RUN mkdir -p /app/staticfiles
-
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
