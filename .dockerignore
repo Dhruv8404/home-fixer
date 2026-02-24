@@ -30,7 +30,6 @@ media/
 Dockerfile
 docker-compose.yml
 .dockerignore
-entrypoint.sh
 
 # Documentation
 README.md
