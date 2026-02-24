@@ -41,7 +41,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: don't run with debug turned on in production!
 
 
-SECRET_KEY = os.getenv("SECRET_KEY") or "django-insecure-u%7rdl^!a2bz&u89$6eyzwp+_bo+-e0dgnt45p3ip2q*t7zdvy"
+SECRET_KEY = os.environ["SECRET_KEY"]
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
