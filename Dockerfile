@@ -11,6 +11,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     postgresql-client \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -31,5 +32,5 @@ RUN chmod +x /app/entrypoint.sh
 # Expose port 8000
 EXPOSE 8000
 
-# Run entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Set default command
+CMD ["gunicorn", "home_fixer.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
