@@ -274,7 +274,7 @@ class VendorProfileSerializer(serializers.ModelSerializer):
 
 class ProfileResponseSerializer(serializers.Serializer):
     user = UserProfileSerializer()
-    profile = serializers.JSONField(required=False, allow_null=True)
+    profile = serializers.DictField()
 
 
 
