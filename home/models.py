@@ -88,17 +88,38 @@ class ServicemanProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
 
     is_online = models.BooleanField(default=False)
-    is_approved = models.BooleanField(default=False)   # ✅ NEW FIELD
-    is_active = models.BooleanField(default=True)   # ✅ ADD THIS
+    is_approved = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
     current_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     current_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
+
     experience_years = models.IntegerField(default=0)
-    kyc_docs_url = models.URLField(max_length=2048, null=True, blank=True)
+
+    # ✅ NEW: Hourly Charges
+    hourly_charges = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # ✅ NEW: Skills (stored as JSON list)
+    skills = models.JSONField(default=list, blank=True)
+
     average_rating = models.FloatField(default=0.0)
 
+    # ✅ Profile Image
     profile_image = CloudinaryField(
         'image',
         folder='home_fixer/servicemen/',
+        null=True,
+        blank=True
+    )
+
+    # ✅ KYC Document Image Upload (Cloudinary Image)
+    kyc_document = CloudinaryField(
+        'image',
+        folder='home_fixer/servicemen/kyc/',
         null=True,
         blank=True
     )

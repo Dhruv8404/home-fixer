@@ -131,45 +131,72 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
 
 
-
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source="user_id", read_only=True)
+    hourly_charges = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False
+    )
+
+    skills = serializers.CharField(
+    required=False,
+    help_text="Enter skills as comma separated values. Example: Plumbing,Electrician,AC Repair"
+)
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
+
+    kyc_document = serializers.ImageField(required=False, write_only=True)
+    kyc_document_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ServicemanProfile
         fields = [
             "id",
             "is_online",
-            "is_approved",   # ✅ ADD THIS
-            "is_active",   # ✅ ADD THIS
+            "is_approved",
+            "is_active",
             "current_lat",
             "current_long",
             "experience_years",
-            "kyc_docs_url",
+            "hourly_charges",     # ✅ NEW
+            "skills",             # ✅ NEW
             "average_rating",
             "profile_image",
             "profile_image_url",
+            "kyc_document",       # ✅ NEW
+            "kyc_document_url",   # ✅ NEW
         ]
-        read_only_fields = ["is_approved"]  # 🔒 Only admin can change
+        read_only_fields = ["is_approved"]
 
     def get_profile_image_url(self, obj):
         if obj.profile_image:
             return obj.profile_image.url
         return None
-    def update(self, instance, validated_data):
-        new_image = validated_data.get("profile_image", None)
 
-        if new_image and instance.profile_image:
-            try:
-                public_id = instance.profile_image.public_id
-                cloudinary.uploader.destroy(public_id)
-            except Exception:
-                pass
+    def get_kyc_document_url(self, obj):
+        if obj.kyc_document:
+            return obj.kyc_document.url
+        return None
+    def validate_skills(self, value):
+        if value:
+            return [skill.strip() for skill in value.split(",")]
+        return []
+    def update(self, instance, validated_data):
+        file_fields = ["profile_image", "kyc_document"]
+
+        for field in file_fields:
+            new_file = validated_data.get(field, None)
+            old_file = getattr(instance, field)
+
+            if new_file and old_file:
+                try:
+                    cloudinary.uploader.destroy(old_file.public_id)
+                except Exception:
+                    pass
 
         return super().update(instance, validated_data)
-
+    
 
 
 class VendorProfileSerializer(serializers.ModelSerializer):
