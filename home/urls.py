@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from .views import (
     AdminVendorControlAPI,
+    CategoryNearbyServicemanAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
     RegisterSendOTPAPI,
@@ -66,9 +67,7 @@ urlpatterns = [
 
     # Nearby Serviceman API
     path("servicemen/nearby/", NearbyServicemanAPI.as_view()),
-    path("servicemen/", views.ServicemenListAPI.as_view()),
-
-
+    path("servicemen/category-nearby/", CategoryNearbyServicemanAPI.as_view()),
     # Admin APIs
     path("admin/users/", AdminUserManagementAPI.as_view()),          # GET, POST
     path("admin/users/<int:pk>/", AdminUserDetailAPI.as_view()),     
