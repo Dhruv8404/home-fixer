@@ -551,78 +551,127 @@ class ProductSoftDeleteAPI(APIView):
 #=============Nearby Servicemen API =============#
 from rest_framework.exceptions import ValidationError
 from .utils import distance_km
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .models import Serviceman
-from home.models import Category
-
 
 class NearbyServicemanAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Get nearby servicemen within 10 km",
+        operation_summary="Get All Servicemen Within 10km",
         manual_parameters=[
-            openapi.Parameter(
-                "lat",
-                openapi.IN_QUERY,
-                description="Latitude",
-                type=openapi.TYPE_NUMBER,
-                required=True,
-            ),
-            openapi.Parameter(
-                "lon",
-                openapi.IN_QUERY,
-                description="Longitude",
-                type=openapi.TYPE_NUMBER,
-                required=True,
-            ),
-            openapi.Parameter(
-                "category",
-                openapi.IN_QUERY,
-                description="Category name",
-                type=openapi.TYPE_STRING,
-                required=False,
-            ),
+            openapi.Parameter("lat", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+            openapi.Parameter("lon", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
         ],
+        responses={200: ServicemanProfileSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Servicemen"]
     )
     def get(self, request):
-        lat = float(request.query_params.get("lat"))
-        lon = float(request.query_params.get("lon"))
-        category = request.query_params.get("category")
 
-        # ✅ Explicit validation
-        if lat is None:
-            raise ValidationError({"lat": "Latitude is required"})
-        if lon is None:
-            raise ValidationError({"lon": "Longitude is required"})
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+
+        if not lat or not lon:
+            raise ValidationError({"detail": "Latitude and longitude are required"})
 
         try:
             lat = float(lat)
             lon = float(lon)
         except ValueError:
-            raise ValidationError({"detail": "Latitude and longitude must be numbers"})
+            raise ValidationError({"detail": "Invalid latitude or longitude"})
+
+        queryset = ServicemanProfile.objects.filter(
+            is_active=True,
+            is_approved=True,
+            current_lat__isnull=False,
+            current_long__isnull=False
+        )
 
         nearby = []
 
-        qs = Serviceman.objects.filter(
-        is_active=True,
-        servicemanprofile__is_approved=True,
-        servicemanprofile__is_active=True
+        for profile in queryset:
+            distance = distance_km(
+                lat,
+                lon,
+                float(profile.current_lat),
+                float(profile.current_long)
+            )
+
+            if distance <= 10:
+                nearby.append(profile)
+
+        serializer = ServicemanProfileSerializer(nearby, many=True)
+        return Response(serializer.data)
+
+
+
+
+class CategoryNearbyServicemanAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get Category Based Servicemen Within 10km",
+        manual_parameters=[
+            openapi.Parameter("lat", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+            openapi.Parameter("lon", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+            openapi.Parameter(
+                "category",
+                openapi.IN_QUERY,
+                description="Category name (Example: Plumbing)",
+                type=openapi.TYPE_STRING,
+                required=True
+            ),
+        ],
+        responses={200: ServicemanProfileSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Servicemen"]
     )
-        if category:
-            qs = qs.filter(category__name__iexact=category)
+    def get(self, request):
+
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+        category = request.query_params.get("category")
+
+        if not lat or not lon or not category:
+            raise ValidationError({"detail": "Latitude, longitude and category are required"})
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            raise ValidationError({"detail": "Invalid latitude or longitude"})
+
+        queryset = ServicemanProfile.objects.filter(
+            is_active=True,
+            is_approved=True,
+            skills__contains=[category],   # 🔥 CATEGORY = SKILL
+            current_lat__isnull=False,
+            current_long__isnull=False
+        )
 
         nearby = []
-        for s in qs:
-            dist = distance_km(lat, lon, s.latitude, s.longitude)
-            if dist <= 10:
-                nearby.append({
-                    "id": s.id,
-                    "name": s.name,
-                    "category": s.category.name,
-                    "distance_km": round(dist, 2),
-                })
 
-        return Response(nearby)
+        for profile in queryset:
+            distance = distance_km(
+                lat,
+                lon,
+                float(profile.current_lat),
+                float(profile.current_long)
+            )
+
+            if distance <= 10:
+                nearby.append(profile)
+
+        serializer = ServicemanProfileSerializer(nearby, many=True)
+        return Response(serializer.data)
+
+
 
 #----------------Servicemen List API-----------------
 
