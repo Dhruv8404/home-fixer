@@ -398,10 +398,9 @@ class SaveProfileAPI(APIView):
         })
 
 
-
 class ProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
+
     @swagger_auto_schema(
         operation_summary="Get logged-in user profile",
         responses={200: ProfileResponseSerializer}
@@ -409,29 +408,30 @@ class ProfileAPI(APIView):
     def get(self, request):
         user = request.user
         user_data = UserProfileSerializer(user).data
-        profile_data = None
 
-        if user.role == "CUSTOMER":
-            profile = CustomerProfile.objects.filter(user=user).first()
-            if profile:
+        profile_data = {}
+
+        try:
+            if user.role == "CUSTOMER":
+                profile = CustomerProfile.objects.get(user=user)
                 profile_data = CustomerProfileSerializer(profile).data
 
-        elif user.role == "SERVICEMAN":
-            profile = ServicemanProfile.objects.filter(user=user).first()
-            if profile:
+            elif user.role == "SERVICEMAN":
+                profile = ServicemanProfile.objects.get(user=user)
                 profile_data = ServicemanProfileSerializer(profile).data
 
-        elif user.role == "VENDOR":
-            profile = VendorProfile.objects.filter(user=user).first()
-            if profile:
+            elif user.role == "VENDOR":
+                profile = VendorProfile.objects.get(user=user)
                 profile_data = VendorProfileSerializer(profile).data
+
+        except Exception:
+            # If profile not created yet
+            profile_data = {}
 
         return Response({
             "user": user_data,
             "profile": profile_data
         })
-
-
 
 
 
