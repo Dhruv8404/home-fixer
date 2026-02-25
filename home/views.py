@@ -398,9 +398,10 @@ class SaveProfileAPI(APIView):
         })
 
 
+
 class ProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser)
     @swagger_auto_schema(
         operation_summary="Get logged-in user profile",
         responses={200: ProfileResponseSerializer}
@@ -408,30 +409,29 @@ class ProfileAPI(APIView):
     def get(self, request):
         user = request.user
         user_data = UserProfileSerializer(user).data
+        profile_data = None
 
-        profile_data = {}
-
-        try:
-            if user.role == "CUSTOMER":
-                profile = CustomerProfile.objects.get(user=user)
+        if user.role == "CUSTOMER":
+            profile = CustomerProfile.objects.filter(user=user).first()
+            if profile:
                 profile_data = CustomerProfileSerializer(profile).data
 
-            elif user.role == "SERVICEMAN":
-                profile = ServicemanProfile.objects.get(user=user)
+        elif user.role == "SERVICEMAN":
+            profile = ServicemanProfile.objects.filter(user=user).first()
+            if profile:
                 profile_data = ServicemanProfileSerializer(profile).data
 
-            elif user.role == "VENDOR":
-                profile = VendorProfile.objects.get(user=user)
+        elif user.role == "VENDOR":
+            profile = VendorProfile.objects.filter(user=user).first()
+            if profile:
                 profile_data = VendorProfileSerializer(profile).data
-
-        except Exception:
-            # If profile not created yet
-            profile_data = {}
 
         return Response({
             "user": user_data,
             "profile": profile_data
         })
+
+
 
 
 
@@ -630,31 +630,48 @@ class ServicemenListAPI(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrCustomer]
 
     @swagger_auto_schema(
-    operation_summary="List Approved & Active Servicemen",
-    operation_description="""
-Returns only servicemen where:
-- Serviceman.is_active = True
-- ServicemanProfile.is_active = True
-- ServicemanProfile.is_approved = True
-
-Optional filter by category.
-""",
-    manual_parameters=[
-        openapi.Parameter(
-            "category",
-            openapi.IN_QUERY,
-            description="Filter by category name",
-            type=openapi.TYPE_STRING
-        )
-    ],
-    responses={
-        200: ServicemanSerializer(many=True)
-    },
-    security=[{"Bearer": []}],
-    tags=["Servicemen"]
-)
+        operation_summary="List Approved & Active Servicemen (within 10km)",
+        manual_parameters=[
+            openapi.Parameter(
+                "lat",
+                openapi.IN_QUERY,
+                description="Latitude",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "lon",
+                openapi.IN_QUERY,
+                description="Longitude",
+                type=openapi.TYPE_NUMBER,
+                required=True,
+            ),
+            openapi.Parameter(
+                "category",
+                openapi.IN_QUERY,
+                description="Filter by category name",
+                type=openapi.TYPE_STRING,
+                required=False,
+            )
+        ],
+        responses={200: ServicemanSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Servicemen"]
+    )
     def get(self, request):
+
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
         category = request.query_params.get("category")
+
+        if not lat or not lon:
+            raise ValidationError({"detail": "Latitude and longitude are required"})
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            raise ValidationError({"detail": "Latitude and longitude must be numbers"})
 
         queryset = Serviceman.objects.filter(
             is_active=True,
@@ -665,10 +682,17 @@ Optional filter by category.
         if category:
             queryset = queryset.filter(category__name__iexact=category)
 
-        serializer = ServicemanSerializer(queryset, many=True)
+        nearby = []
+
+        for serviceman in queryset:
+            distance = distance_km(lat, lon, serviceman.latitude, serviceman.longitude)
+
+            if distance <= 10:
+                nearby.append(serviceman)
+
+        serializer = ServicemanSerializer(nearby, many=True)
         return Response(serializer.data)
-
-
+    
 from .permissions import IsAdminRole
 class AdminServicemanControlAPI(APIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
