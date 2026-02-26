@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
 from cloudinary.models import CloudinaryField
-
+from rest_framework import serializers
 #=============user model manager==================
 class UserManager(BaseUserManager):
     def create_user(self, email, phone, password=None, role='CUSTOMER'):
@@ -86,7 +86,7 @@ class CustomerProfile(models.Model):
 
 class ServicemanProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
-
+    name = serializers.CharField(source="user.name", read_only=True)
     is_online = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
