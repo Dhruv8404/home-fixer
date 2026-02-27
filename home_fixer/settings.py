@@ -19,15 +19,14 @@ load_dotenv()
 
 # ================= EMAIL CONFIG (FOR TESTING ONLY) =================
 
-EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST="smtp.gmail.com"
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER="pateldhruv8404@gmail.com"
-EMAIL_HOST_PASSWORD="qena twwq zspq fepm"
-DEFAULT_FROM_EMAIL="pateldhruv8404@gmail.com"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 
-
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
