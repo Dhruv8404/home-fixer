@@ -16,38 +16,29 @@ def generate_otp():
 
 logger = logging.getLogger(__name__)
 
-from django.core.mail import send_mail
-from django.conf import settings
 def send_email_otp(email):
-    try:
-        now = timezone.now()
-        expiry_time = now - timedelta(minutes=OTP_EXPIRY_MINUTES)
+    now = timezone.now()
+    expiry_time = now - timedelta(minutes=OTP_EXPIRY_MINUTES)
 
-        existing_otp = EmailOTP.objects.filter(
-            email=email,
-            created_at__gte=expiry_time
-        ).first()
+    existing_otp = EmailOTP.objects.filter(
+        email=email,
+        created_at__gte=expiry_time
+    ).first()
 
-        if existing_otp:
-            otp = existing_otp.otp
-        else:
-            EmailOTP.objects.filter(email=email).delete()
-            otp = generate_otp()
-            EmailOTP.objects.create(email=email, otp=otp)
+    if existing_otp:
+        otp = existing_otp.otp
+    else:
+        EmailOTP.objects.filter(email=email).delete()
+        otp = generate_otp()
+        EmailOTP.objects.create(email=email, otp=otp)
 
-        send_mail(
-            "Home Fixer OTP",
-            f"Your OTP is {otp}",
-            settings.DEFAULT_FROM_EMAIL,
-            [email],
-            fail_silently=False,
-        )
+    print("====================================")
+    print(f"📧 Email : {email}")
+    print(f"🔢 OTP   : {otp}")
+    print("====================================")
 
-        return otp
 
-    except Exception as e:
-        print("EMAIL ERROR:", e)
-        raise e
+    return otp
 
 
 def verify_email_otp(email, otp):
