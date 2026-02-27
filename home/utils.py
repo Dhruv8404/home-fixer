@@ -16,6 +16,9 @@ def generate_otp():
 
 logger = logging.getLogger(__name__)
 
+from django.core.mail import send_mail
+from django.conf import settings
+
 def send_email_otp(email):
     now = timezone.now()
     expiry_time = now - timedelta(minutes=OTP_EXPIRY_MINUTES)
@@ -32,11 +35,24 @@ def send_email_otp(email):
         otp = generate_otp()
         EmailOTP.objects.create(email=email, otp=otp)
 
-    print("====================================")
-    print(f"📧 Email : {email}")
-    print(f"🔢 OTP   : {otp}")
-    print("====================================")
+    subject = "Home Fixer OTP Verification"
+    message = f"""
+Hello,
 
+Your OTP is: {otp}
+
+This OTP is valid for 5 minutes.
+
+Do not share this OTP with anyone.
+"""
+
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [email],   # ✅ IMPORTANT FIX
+        fail_silently=False,
+    )
 
     return otp
 
