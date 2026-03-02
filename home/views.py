@@ -1068,24 +1068,34 @@ class NearbyVendorAPI(APIView):
         return Response(serializer.data)    
     
 
+# ================= BOOKING APIs =================
+
+from .models import Booking, BookingItem, Service, ServicemanOffering
+from .serializers import BookingCreateSerializer, BookingResponseSerializer
+
 
 class CreateBookingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         request_body=BookingCreateSerializer,
+        responses={201: BookingResponseSerializer},
         security=[{"Bearer": []}],
         tags=["Booking"]
     )
     def post(self, request):
 
         if request.user.role != "CUSTOMER":
-            return Response({"detail": "Only customers can book"}, status=403)
+            return Response(
+                {"detail": "Only customers can create bookings"},
+                status=403
+            )
 
         serializer = BookingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        customer = CustomerProfile.objects.get(user=request.user)
+        customer = get_object_or_404(CustomerProfile, user=request.user)
+
         serviceman = get_object_or_404(
             ServicemanProfile,
             pk=serializer.validated_data["serviceman_id"],
@@ -1099,6 +1109,33 @@ class CreateBookingAPI(APIView):
             is_active=True
         )
 
+        # 🔥 CHECK: Serviceman offers this service
+        if not ServicemanOffering.objects.filter(
+            serviceman=serviceman,
+            service=service,
+            is_active=True
+        ).exists():
+            return Response(
+                {"detail": "This serviceman does not offer selected service"},
+                status=400
+            )
+
+        # 🔥 CHECK: Prevent double booking
+        if Booking.objects.filter(
+            serviceman=serviceman,
+            scheduled_at=serializer.validated_data["scheduled_at"],
+            status__in=["PENDING", "ACCEPTED", "ONGOING"]
+        ).exists():
+            return Response(
+                {"detail": "Serviceman already booked at this time"},
+                status=400
+            )
+
+        # 💰 Price calculation
+        total_price = service.base_price
+        platform_fee = total_price * 0.10  # 10% platform fee
+        grand_total = total_price + platform_fee
+
         booking = Booking.objects.create(
             customer=customer,
             serviceman=serviceman,
@@ -1106,8 +1143,9 @@ class CreateBookingAPI(APIView):
             job_location_address=serializer.validated_data["job_location_address"],
             job_lat=serializer.validated_data["job_lat"],
             job_long=serializer.validated_data["job_long"],
-            total_labor_cost=service.base_price,
-            grand_total=service.base_price
+            total_labor_cost=total_price,
+            platform_fee=platform_fee,
+            grand_total=grand_total,
         )
 
         BookingItem.objects.create(
@@ -1116,8 +1154,6 @@ class CreateBookingAPI(APIView):
             price_at_booking=service.base_price
         )
 
-        return Response({
-            "message": "Booking created successfully",
-            "booking_id": booking.id,
-            "status": booking.status
-        })    
+        response_serializer = BookingResponseSerializer(booking)
+
+        return Response(response_serializer.data, status=201)
