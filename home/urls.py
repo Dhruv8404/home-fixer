@@ -5,6 +5,7 @@ from .views import (
     CategoryNearbyServicemanAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
+    NearbyVendorAPI,
     RegisterSendOTPAPI,
     RegisterVerifyOTPAPI,
     RegisterCompleteAPI,
@@ -93,6 +94,9 @@ urlpatterns = [
     path("admin/customers/", views.AdminCustomerListAPI.as_view()),
     path("admin/servicemen/all/", views.AdminServicemanListAPI.as_view()),
     path("admin/vendors/all/", views.AdminVendorListAPI.as_view()),
+
+
+    path("vendors/nearby/", NearbyVendorAPI.as_view(), name="vendors-nearby"),
 
 
 ]

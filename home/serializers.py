@@ -361,3 +361,30 @@ class ServicemanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Serviceman
         fields = ["id", "name", "category", "latitude", "longitude"]
+
+
+class VendorNearbySerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="user_id", read_only=True)
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    phone = serializers.CharField(source="user.phone", read_only=True)
+    profile_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VendorProfile
+        fields = [
+            "id",
+            "user_name",
+            "phone",
+            "business_name",
+            "city",
+            "state",
+            "full_address",
+            "store_lat",
+            "store_long",
+            "profile_image_url",
+        ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
