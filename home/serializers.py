@@ -388,3 +388,13 @@ class VendorNearbySerializer(serializers.ModelSerializer):
         if obj.profile_image:
             return obj.profile_image.url
         return None
+
+
+#--------Booking-serializer---------------------
+class BookingCreateSerializer(serializers.Serializer):
+    serviceman_id = serializers.IntegerField()
+    service_id = serializers.IntegerField()
+    scheduled_at = serializers.DateTimeField()
+    job_location_address = serializers.CharField()
+    job_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
+    job_long = serializers.DecimalField(max_digits=11, decimal_places=8)

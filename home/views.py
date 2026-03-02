@@ -4,8 +4,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from .models import User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
+from .models import Booking, BookingItem, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
+    BookingCreateSerializer,
     SendOTPSerializer,
     VendorNearbySerializer,
     VerifyOTPSerializer,
@@ -1065,3 +1066,58 @@ class NearbyVendorAPI(APIView):
 
         serializer = VendorNearbySerializer(nearby, many=True)
         return Response(serializer.data)    
+    
+
+
+class CreateBookingAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=BookingCreateSerializer,
+        security=[{"Bearer": []}],
+        tags=["Booking"]
+    )
+    def post(self, request):
+
+        if request.user.role != "CUSTOMER":
+            return Response({"detail": "Only customers can book"}, status=403)
+
+        serializer = BookingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        customer = CustomerProfile.objects.get(user=request.user)
+        serviceman = get_object_or_404(
+            ServicemanProfile,
+            pk=serializer.validated_data["serviceman_id"],
+            is_active=True,
+            is_approved=True
+        )
+
+        service = get_object_or_404(
+            Service,
+            pk=serializer.validated_data["service_id"],
+            is_active=True
+        )
+
+        booking = Booking.objects.create(
+            customer=customer,
+            serviceman=serviceman,
+            scheduled_at=serializer.validated_data["scheduled_at"],
+            job_location_address=serializer.validated_data["job_location_address"],
+            job_lat=serializer.validated_data["job_lat"],
+            job_long=serializer.validated_data["job_long"],
+            total_labor_cost=service.base_price,
+            grand_total=service.base_price
+        )
+
+        BookingItem.objects.create(
+            booking=booking,
+            service=service,
+            price_at_booking=service.base_price
+        )
+
+        return Response({
+            "message": "Booking created successfully",
+            "booking_id": booking.id,
+            "status": booking.status
+        })    

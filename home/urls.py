@@ -3,6 +3,7 @@ from . import views
 from .views import (
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
+    CreateBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
     NearbyVendorAPI,
@@ -97,6 +98,6 @@ urlpatterns = [
 
 
     path("vendors/nearby/", NearbyVendorAPI.as_view(), name="vendors-nearby"),
-
+    path("bookings/create/", CreateBookingAPI.as_view()),
 
 ]
