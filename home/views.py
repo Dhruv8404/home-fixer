@@ -1222,7 +1222,24 @@ from .permissions import IsAdminRole
 
 class ServiceSoftDeleteAPI(APIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
-
+    @swagger_auto_schema(
+        operation_summary="Admin: Soft Delete Service",
+        operation_description="Sets is_active=False for the service. Only ADMIN can perform this action.",
+        responses={
+            200: openapi.Response(
+                description="Service soft deleted successfully",
+                examples={
+                    "application/json": {
+                        "message": "Service soft deleted successfully"
+                    }
+                }
+            ),
+            404: "Service not found",
+            403: "Admin access required"
+        },
+        security=[{"Bearer": []}],
+        tags=["Services - Admin"]
+    )
     def delete(self, request, pk):
         service = get_object_or_404(Service, pk=pk)
         service.is_active = False
