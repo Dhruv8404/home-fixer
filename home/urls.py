@@ -100,4 +100,15 @@ urlpatterns = [
     path("vendors/nearby/", NearbyVendorAPI.as_view(), name="vendors-nearby"),
     path("bookings/create/", CreateBookingAPI.as_view()),
 
+
+# ================= SERVICES =================
+
+path("services/", views.ServiceListAPI.as_view(), name="service-list"),
+path("services/create/", views.ServiceCreateAPI.as_view(), name="service-create"),
+path("services/<int:pk>/update/", views.ServiceUpdateAPI.as_view(), name="service-update"),
+path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view(), name="service-delete"),
+
+# ================= BOOKINGS =================
+
+path("bookings/create/", CreateBookingAPI.as_view(), name="booking-create"),
 ]
