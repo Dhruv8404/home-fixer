@@ -391,10 +391,39 @@ class VendorNearbySerializer(serializers.ModelSerializer):
 
 
 #--------Booking-serializer---------------------
+# ================= BOOKING SERIALIZERS =================
+
+from .models import Booking
+from rest_framework import serializers
+
+
 class BookingCreateSerializer(serializers.Serializer):
     serviceman_id = serializers.IntegerField()
     service_id = serializers.IntegerField()
     scheduled_at = serializers.DateTimeField()
-    job_location_address = serializers.CharField()
+    job_location_address = serializers.CharField(min_length=3)
     job_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
     job_long = serializers.DecimalField(max_digits=11, decimal_places=8)
+
+    def validate_scheduled_at(self, value):
+        from django.utils import timezone
+        if value < timezone.now():
+            raise serializers.ValidationError("Scheduled time must be in future")
+        return value
+
+
+class BookingResponseSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="customer.user.name")
+    serviceman_name = serializers.CharField(source="serviceman.user.name")
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "customer_name",
+            "serviceman_name",
+            "scheduled_at",
+            "status",
+            "grand_total",
+            "job_location_address",
+        ]
