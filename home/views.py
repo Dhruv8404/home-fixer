@@ -7,6 +7,7 @@ from drf_yasg import openapi
 from .models import User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
     SendOTPSerializer,
+    VendorNearbySerializer,
     VerifyOTPSerializer,
     CompleteRegisterSerializer,
     UserProfileSerializer,
@@ -1011,4 +1012,56 @@ class AdminVendorListAPI(APIView):
     def get(self, request):
         vendors = VendorProfile.objects.select_related("user")
         serializer = VendorProfileSerializer(vendors, many=True)
+        return Response(serializer.data)    
+    
+
+
+class NearbyVendorAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get Nearby Vendors Within 10km",
+        manual_parameters=[
+            openapi.Parameter("lat", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+            openapi.Parameter("lon", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+        ],
+        responses={200: VendorNearbySerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Vendors"]
+    )
+    def get(self, request):
+
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+
+        if not lat or not lon:
+            raise ValidationError({"detail": "Latitude and longitude required"})
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            raise ValidationError({"detail": "Invalid coordinates"})
+
+        queryset = VendorProfile.objects.filter(
+            is_active=True,
+            is_approved=True,
+            store_lat__isnull=False,
+            store_long__isnull=False
+        )
+
+        nearby = []
+
+        for vendor in queryset:
+            distance = distance_km(
+                lat,
+                lon,
+                float(vendor.store_lat),
+                float(vendor.store_long)
+            )
+
+            if distance <= 10:
+                nearby.append(vendor)
+
+        serializer = VendorNearbySerializer(nearby, many=True)
         return Response(serializer.data)    
