@@ -341,10 +341,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class ServiceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Service
-        fields = "__all__"
+
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -427,3 +424,46 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             "grand_total",
             "job_location_address",
         ]
+
+
+
+# ================= SERVICE SERIALIZERS =================
+
+from .models import Service, Category
+from rest_framework import serializers
+
+
+class ServiceSerializer(serializers.ModelSerializer):
+
+    category_name = serializers.CharField(
+        source="category.name",
+        read_only=True
+    )
+
+    class Meta:
+        model = Service
+        fields = [
+            "id",
+            "category",
+            "category_name",
+            "name",
+            "description",
+            "base_price",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_base_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Base price must be greater than zero"
+            )
+        return value
+
+    def validate_name(self, value):
+        if len(value.strip()) < 3:
+            raise serializers.ValidationError(
+                "Service name must be at least 3 characters"
+            )
+        return value

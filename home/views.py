@@ -1157,3 +1157,77 @@ class CreateBookingAPI(APIView):
         response_serializer = BookingResponseSerializer(booking)
 
         return Response(response_serializer.data, status=201)
+
+
+
+# ================= SERVICE LIST API =================
+
+from .models import Service
+from .serializers import ServiceSerializer
+
+
+class ServiceCreateAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        request_body=ServiceSerializer,
+        responses={201: ServiceSerializer},
+        security=[{"Bearer": []}],
+        tags=["Services - Admin"]
+    )
+    def post(self, request):
+        serializer = ServiceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=201)
+
+class ServiceListAPI(APIView):
+    permission_classes = [IsAuthenticated]  # or AllowAny if public
+
+    @swagger_auto_schema(
+        operation_summary="Get All Active Services",
+        responses={200: ServiceSerializer(many=True)},
+        tags=["Services"]
+    )
+    def get(self, request):
+        services = Service.objects.filter(is_active=True)
+        serializer = ServiceSerializer(services, many=True)
+        return Response(serializer.data)        
+    
+
+class ServiceUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        request_body=ServiceSerializer,
+        responses={200: ServiceSerializer},
+        security=[{"Bearer": []}],
+        tags=["Services - Admin"]
+    )
+    def put(self, request, pk):
+        service = get_object_or_404(Service, pk=pk)
+
+        serializer = ServiceSerializer(
+            service,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)    
+    
+from .permissions import IsAdminRole
+
+class ServiceSoftDeleteAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def delete(self, request, pk):
+        service = get_object_or_404(Service, pk=pk)
+        service.is_active = False
+        service.save()
+
+        return Response({
+            "message": "Service soft deleted successfully"
+        })
