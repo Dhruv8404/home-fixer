@@ -22,7 +22,7 @@ from .serializers import (
     ServicemanSerializer
 )
 from .utils import send_email_otp, verify_email_otp
-from rest_framework import status
+from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from .permissions import IsAdminOrCustomer
@@ -1112,8 +1112,9 @@ Customer books a serviceman.
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        customer = get_object_or_404(CustomerProfile, user=request.user)
-
+        customer, _ = CustomerProfile.objects.get_or_create(
+        user=request.user
+)
         serviceman = get_object_or_404(
             ServicemanProfile,
             pk=data["serviceman_id"],

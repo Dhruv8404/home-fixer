@@ -86,7 +86,6 @@ class CustomerProfile(models.Model):
 
 class ServicemanProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
-    name = serializers.CharField(source="user.name", read_only=True)
     is_online = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -288,7 +287,7 @@ class BookingImage(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
 
-    
+
 class BookingItem(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE)
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
