@@ -416,17 +416,23 @@ class BookingCreateSerializer(serializers.Serializer):
 
     def validate(self, data):
         scheduled_at = datetime.combine(
-            data["scheduled_date"],
-            data["scheduled_time"]
-        )
+        data["scheduled_date"],
+        data["scheduled_time"]
+    )
+
+    # Convert to timezone-aware datetime
+        scheduled_at = timezone.make_aware(
+        scheduled_at,
+        timezone.get_current_timezone()
+    )
 
         if scheduled_at < timezone.now():
             raise serializers.ValidationError(
-                "Scheduled time must be in future"
-            )
+            "Scheduled time must be in future"
+        )
 
         data["scheduled_at"] = scheduled_at
-        return data    
+        return data 
 
 class BookingResponseSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.user.name")
