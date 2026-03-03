@@ -588,7 +588,7 @@ class NearbyServicemanAPI(APIView):
         except ValueError:
             raise ValidationError({"detail": "Invalid latitude or longitude"})
 
-        queryset = ServicemanProfile.objects.filter(
+        queryset = ServicemanProfile.objects.select_related("user").filter(
             is_active=True,
             is_approved=True,
             current_lat__isnull=False,
@@ -649,7 +649,7 @@ class CategoryNearbyServicemanAPI(APIView):
         except ValueError:
             raise ValidationError({"detail": "Invalid latitude or longitude"})
 
-        queryset = ServicemanProfile.objects.filter(
+        queryset = ServicemanProfile.objects.select_related("user").filter(
             is_active=True,
             is_approved=True,
             skills__contains=[category],   # 🔥 CATEGORY = SKILL
