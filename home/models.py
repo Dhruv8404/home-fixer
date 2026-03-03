@@ -241,8 +241,8 @@ class ServicemanOffering(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-
 class Booking(models.Model):
+
     STATUS_CHOICES = [
         ('PENDING', 'Pending'),
         ('ACCEPTED', 'Accepted'),
@@ -253,9 +253,14 @@ class Booking(models.Model):
 
     customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE)
     serviceman = models.ForeignKey(ServicemanProfile, on_delete=models.CASCADE)
-    scheduled_at = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
 
+    scheduled_at = models.DateTimeField()
+
+    # 🔥 Problem Section (From UI)
+    problem_title = models.CharField(max_length=255)
+    problem_description = models.TextField()
+
+    # 🔥 Price Breakdown (From UI)
     total_labor_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_material_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -265,11 +270,25 @@ class Booking(models.Model):
     job_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     job_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
 
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+class BookingImage(models.Model):
+    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="images")
+
+    image = CloudinaryField(
+        'image',
+        folder='home_fixer/bookings/',
+        null=True,
+        blank=True
+    )
+
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 
 
+    
 class BookingItem(models.Model):
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE)
     service = models.ForeignKey(Service, on_delete=models.PROTECT)

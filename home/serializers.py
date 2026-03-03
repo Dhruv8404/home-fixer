@@ -389,25 +389,44 @@ class VendorNearbySerializer(serializers.ModelSerializer):
 
 #--------Booking-serializer---------------------
 # ================= BOOKING SERIALIZERS =================
-
 from .models import Booking
 from rest_framework import serializers
+from datetime import datetime
+from django.utils import timezone
 
 
 class BookingCreateSerializer(serializers.Serializer):
     serviceman_id = serializers.IntegerField()
-    service_id = serializers.IntegerField()
-    scheduled_at = serializers.DateTimeField()
-    job_location_address = serializers.CharField(min_length=3)
+
+    scheduled_date = serializers.DateField()
+    scheduled_time = serializers.TimeField()
+
+    problem_title = serializers.CharField(max_length=255)
+    problem_description = serializers.CharField()
+
+    job_location_address = serializers.CharField()
     job_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
     job_long = serializers.DecimalField(max_digits=11, decimal_places=8)
 
-    def validate_scheduled_at(self, value):
-        from django.utils import timezone
-        if value < timezone.now():
-            raise serializers.ValidationError("Scheduled time must be in future")
-        return value
+    # 🔥 IMPORTANT FIX
+    images = serializers.ImageField(
+        required=False,
+        write_only=True
+    )
 
+    def validate(self, data):
+        scheduled_at = datetime.combine(
+            data["scheduled_date"],
+            data["scheduled_time"]
+        )
+
+        if scheduled_at < timezone.now():
+            raise serializers.ValidationError(
+                "Scheduled time must be in future"
+            )
+
+        data["scheduled_at"] = scheduled_at
+        return data    
 
 class BookingResponseSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.user.name")
@@ -420,11 +439,15 @@ class BookingResponseSerializer(serializers.ModelSerializer):
             "customer_name",
             "serviceman_name",
             "scheduled_at",
-            "status",
+            "problem_title",
+            "problem_description",
+            "total_labor_cost",
+            "total_material_cost",
+            "platform_fee",
             "grand_total",
+            "status",
             "job_location_address",
         ]
-
 
 
 # ================= SERVICE SERIALIZERS =================

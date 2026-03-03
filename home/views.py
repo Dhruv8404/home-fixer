@@ -1069,17 +1069,34 @@ class NearbyVendorAPI(APIView):
     
 
 # ================= BOOKING APIs =================
-
-from .models import Booking, BookingItem, Service, ServicemanOffering
-from .serializers import BookingCreateSerializer, BookingResponseSerializer
-
+from decimal import Decimal
+from rest_framework.parsers import MultiPartParser, FormParser
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from .models import Booking, BookingImage
 
 class CreateBookingAPI(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
+        operation_summary="Create Booking (Customer Only)",
+        operation_description="""
+Customer books a serviceman.
+
+• Prevents double booking  
+• Calculates 10% platform fee  
+• Supports multiple image upload  
+""",
         request_body=BookingCreateSerializer,
-        responses={201: BookingResponseSerializer},
+        consumes=["multipart/form-data"],
+        responses={
+            201: openapi.Response(
+                description="Booking Created Successfully"
+            ),
+            400: "Validation Error",
+            403: "Only customers can create bookings"
+        },
         security=[{"Bearer": []}],
         tags=["Booking"]
     )
@@ -1093,37 +1110,23 @@ class CreateBookingAPI(APIView):
 
         serializer = BookingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         customer = get_object_or_404(CustomerProfile, user=request.user)
 
         serviceman = get_object_or_404(
             ServicemanProfile,
-            pk=serializer.validated_data["serviceman_id"],
+            pk=data["serviceman_id"],
             is_active=True,
             is_approved=True
         )
 
-        service = get_object_or_404(
-            Service,
-            pk=serializer.validated_data["service_id"],
-            is_active=True
-        )
+        scheduled_at = data["scheduled_at"]
 
-        # 🔥 CHECK: Serviceman offers this service
-        if not ServicemanOffering.objects.filter(
-            serviceman=serviceman,
-            service=service,
-            is_active=True
-        ).exists():
-            return Response(
-                {"detail": "This serviceman does not offer selected service"},
-                status=400
-            )
-
-        # 🔥 CHECK: Prevent double booking
+        # Prevent double booking
         if Booking.objects.filter(
             serviceman=serviceman,
-            scheduled_at=serializer.validated_data["scheduled_at"],
+            scheduled_at=scheduled_at,
             status__in=["PENDING", "ACCEPTED", "ONGOING"]
         ).exists():
             return Response(
@@ -1131,34 +1134,46 @@ class CreateBookingAPI(APIView):
                 status=400
             )
 
-        # 💰 Price calculation
-        total_price = service.base_price
-        platform_fee = total_price * 0.10  # 10% platform fee
-        grand_total = total_price + platform_fee
+        # Price Calculation
+        labor_cost = serviceman.hourly_charges
+        material_cost = Decimal("0.00")
+        platform_fee = labor_cost * Decimal("0.10")
+        grand_total = labor_cost + material_cost + platform_fee
 
+        # Create booking
         booking = Booking.objects.create(
             customer=customer,
             serviceman=serviceman,
-            scheduled_at=serializer.validated_data["scheduled_at"],
-            job_location_address=serializer.validated_data["job_location_address"],
-            job_lat=serializer.validated_data["job_lat"],
-            job_long=serializer.validated_data["job_long"],
-            total_labor_cost=total_price,
+            scheduled_at=scheduled_at,
+            problem_title=data["problem_title"],
+            problem_description=data["problem_description"],
+            job_location_address=data["job_location_address"],
+            job_lat=data["job_lat"],
+            job_long=data["job_long"],
+            total_labor_cost=labor_cost,
+            total_material_cost=material_cost,
             platform_fee=platform_fee,
             grand_total=grand_total,
         )
 
-        BookingItem.objects.create(
-            booking=booking,
-            service=service,
-            price_at_booking=service.base_price
-        )
+        # Multiple Image Upload (still works)
+        images = request.FILES.getlist("images")
+        for img in images:
+            BookingImage.objects.create(
+                booking=booking,
+                image=img
+            )
 
-        response_serializer = BookingResponseSerializer(booking)
-
-        return Response(response_serializer.data, status=201)
-
-
+        return Response({
+            "message": "Booking Confirmed",
+            "booking_id": booking.id,
+            "price_breakdown": {
+                "labor_cost": labor_cost,
+                "material_cost": material_cost,
+                "platform_fee": platform_fee,
+                "grand_total": grand_total
+            }
+        }, status=201)
 
 # ================= SERVICE LIST API =================
 
