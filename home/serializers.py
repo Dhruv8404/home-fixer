@@ -342,12 +342,49 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 
+from rest_framework import serializers
+from .models import Product, VendorProfile
 
 
 class ProductSerializer(serializers.ModelSerializer):
+
+    image = serializers.ImageField(required=False)
+    image_url = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = Product
-        fields = "__all__"
+        fields = [
+            "id",
+            "category",
+            "name",
+            "price",
+            "stock_quantity",
+            "min_stock_alert",
+            "image",
+            "image_url",
+            "description",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+    def get_image_url(self, obj):
+        if obj.image:
+            return obj.image.url
+        return None
+    def validate_stock_quantity(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Stock cannot be negative")
+        return value
+    def create(self, validated_data):
+        request = self.context["request"]
+
+        # vendor automatically assigned
+        if request.user.role == "VENDOR":
+            vendor = VendorProfile.objects.get(user=request.user)
+            validated_data["vendor"] = vendor
+
+        return Product.objects.create(**validated_data)
+
+
 
 # Serviceman
 from .models import Serviceman

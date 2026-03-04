@@ -1264,3 +1264,264 @@ class ServiceSoftDeleteAPI(APIView):
         return Response({
             "message": "Service soft deleted successfully"
         })
+
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import Booking, ServicemanProfile
+
+
+class ServicemanBookingActionAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Serviceman: Accept or Reject Booking",
+        operation_description="""Serviceman can accept or reject a booking assigned to them.
+        - Accepting sets status to ACCEPTED
+        - Rejecting sets status to CANCELLED                
+        Only the assigned serviceman can perform
+        this action.""",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "action": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Action to perform: accept or reject"
+                )
+            },
+            example={
+                "action": "accept"
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Booking status updated successfully",
+                examples={
+                    "application/json": {
+                        "message": "Booking accepted successfully",
+                        "status": "ACCEPTED"
+                    }
+                }
+            ),
+            400: "Invalid action",
+            403: "Only assigned serviceman can perform this action",
+            404: "Booking not found"
+        },
+        security=[{"Bearer": []}],
+        tags=["Booking - Serviceman Actions"]
+    )
+
+    def patch(self, request, booking_id):
+
+        if request.user.role != "SERVICEMAN":
+            return Response(
+                {"detail": "Only serviceman can perform this action"},
+                status=403
+            )
+
+        booking = get_object_or_404(Booking, pk=booking_id)
+
+        serviceman = get_object_or_404(
+            ServicemanProfile,
+            user=request.user
+        )
+
+        if booking.serviceman != serviceman:
+            return Response(
+                {"detail": "You are not assigned to this booking"},
+                status=403
+            )
+
+        action = request.data.get("action")
+
+        if action == "accept":
+            booking.status = "ACCEPTED"
+            booking.save()
+
+            return Response({
+                "message": "Booking accepted successfully",
+                "status": booking.status
+            })
+
+        elif action == "reject":
+            booking.status = "CANCELLED"
+            booking.save()
+
+            return Response({
+                "message": "Serviceman cannot come for this booking",
+                "status": booking.status
+            })
+
+        else:
+            return Response(
+                {"detail": "Invalid action. Use accept or reject"},
+                status=400
+            )        
+
+
+class CustomerCancelBookingAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Customer: Cancel Booking",
+        operation_description="""Customer can cancel a booking.
+        - Only bookings in PENDING status can be cancelled
+        - Cancelling sets status to CANCELLED
+        Only the booking owner can perform this action.""",
+        responses={
+            200: openapi.Response(
+                description="Booking cancelled successfully",
+                examples={
+                    "application/json": {
+                        "message": "Booking cancelled successfully",
+                        "status": "CANCELLED"
+                    }
+                }
+            ),
+            400: "Booking cannot be cancelled",
+            403: "Only booking owner can cancel this booking"
+        },
+        security=[{"Bearer": []}],
+        tags=["Booking - Customer Actions"]
+    )
+
+    def patch(self, request, booking_id):
+
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"detail": "Only customer can cancel booking"},
+                status=403
+            )
+
+        booking = get_object_or_404(Booking, pk=booking_id)
+
+        # check ownership
+        if booking.customer.user != request.user:
+            return Response(
+                {"detail": "This booking does not belong to you"},
+                status=403
+            )
+
+        # cancellation rules
+        if booking.status in ["ONGOING", "COMPLETED", "CANCELLED"]:
+            return Response(
+                {"detail": "This booking cannot be cancelled"},
+                status=400
+            )
+
+        booking.status = "CANCELLED"
+        booking.save()
+
+        return Response({
+            "message": "Booking cancelled successfully",
+            "status": booking.status
+        })            
+
+
+
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import Product, VendorProfile
+from .serializers import ProductSerializer
+
+
+class ProductCreateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+
+        # Only Admin or Vendor
+        if request.user.role not in ["ADMIN", "VENDOR"]:
+            return Response(
+                {"detail": "Only admin or vendor can create product"},
+                status=403
+            )
+
+        data = request.data.copy()
+
+        # If Vendor → attach vendor automatically
+        if request.user.role == "VENDOR":
+            vendor = get_object_or_404(VendorProfile, user=request.user)
+            data["vendor"] = vendor.pk
+
+        serializer = ProductSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=201)        
+    
+class ProductListAPI(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+
+        products = Product.objects.filter(stock_quantity__gt=0)
+
+        serializer = ProductSerializer(products, many=True)
+
+        return Response(serializer.data)
+
+
+class ProductUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+
+        product = get_object_or_404(Product, pk=pk)
+
+        # Only admin or owner vendor
+        if request.user.role == "VENDOR":
+            if product.vendor.user != request.user:
+                return Response(
+                    {"detail": "You can update only your products"},
+                    status=403
+                )
+
+        elif request.user.role != "ADMIN":
+            return Response(
+                {"detail": "Not allowed"},
+                status=403
+            )
+
+        serializer = ProductSerializer(
+            product,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+    
+
+
+class ProductDeleteAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+
+        product = get_object_or_404(Product, pk=pk)
+
+        if request.user.role == "VENDOR":
+            if product.vendor.user != request.user:
+                return Response(
+                    {"detail": "You can delete only your products"},
+                    status=403
+                )
+
+        elif request.user.role != "ADMIN":
+            return Response(
+                {"detail": "Not allowed"},
+                status=403
+            )
+
+        product.delete()
+
+        return Response({
+            "message": "Product deleted successfully"
+        })    

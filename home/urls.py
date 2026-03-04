@@ -4,12 +4,16 @@ from .views import (
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
     CreateBookingAPI,
+    CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
     NearbyVendorAPI,
+    ProductDeleteAPI,
+    ProductListAPI,
     RegisterSendOTPAPI,
     RegisterVerifyOTPAPI,
     RegisterCompleteAPI,
+    ServicemanBookingActionAPI,
     ServicemanProfileUpdateAPI,
     UserProfileAPI,
     LogoutAPI,
@@ -25,6 +29,8 @@ from .views import (
     PendingVendorsAPI,
     PendingServicemenAPI,
     AdminServicemanControlAPI,
+    ProductCreateAPI,
+    ProductUpdateAPI,
     
 )
 
@@ -101,10 +107,23 @@ urlpatterns = [
 
 # ================= BOOKINGS =================
 path("bookings/create/", CreateBookingAPI.as_view(), name="booking-create"),
-
+path(
+    "booking/<int:booking_id>/cancel/",
+    CustomerCancelBookingAPI.as_view(),
+    name="customer-cancel-booking"
+),
+path("booking/<int:booking_id>/action/",ServicemanBookingActionAPI.as_view(),name="serviceman-booking-action"),
 # ================= SERVICES =================
 path("services/", views.ServiceListAPI.as_view(), name="service-list"),
 path("services/create/", views.ServiceCreateAPI.as_view(), name="service-create"),
 path("services/<int:pk>/update/", views.ServiceUpdateAPI.as_view(), name="service-update"),
 path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view(), name="service-delete"),
+
+
+
+# ================= PRODUCTS =================
+path("products/", ProductListAPI.as_view()),
+path("products/create/", ProductCreateAPI.as_view()),
+path("products/<int:pk>/update/", ProductUpdateAPI.as_view()),
+path("products/<int:pk>/delete/", ProductDeleteAPI.as_view()),
 ]
