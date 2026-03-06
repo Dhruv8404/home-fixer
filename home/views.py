@@ -1431,10 +1431,15 @@ from .serializers import ProductSerializer
 
 class ProductCreateAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    parser_classes = (MultiPartParser, FormParser) 
+    @swagger_auto_schema(
+        request_body=ProductSerializer,
+        responses={201: ProductSerializer},
+        security=[{"Bearer": []}],
+        tags=["Products - Admin & Vendor"]
+    )
     def post(self, request):
 
-        # Only Admin or Vendor
         if request.user.role not in ["ADMIN", "VENDOR"]:
             return Response(
                 {"detail": "Only admin or vendor can create product"},
@@ -1443,19 +1448,35 @@ class ProductCreateAPI(APIView):
 
         data = request.data.copy()
 
-        # If Vendor → attach vendor automatically
+        # Vendor → auto assign vendor
         if request.user.role == "VENDOR":
             vendor = get_object_or_404(VendorProfile, user=request.user)
             data["vendor"] = vendor.pk
 
-        serializer = ProductSerializer(data=data)
+        # Admin → must provide vendor
+        if request.user.role == "ADMIN" and "vendor" not in data:
+            return Response(
+                {"detail": "Admin must provide vendor id"},
+                status=400
+            )
+
+        serializer = ProductSerializer(
+    data=data,
+    context={"request": request}
+)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        return Response(serializer.data, status=201)        
+        return Response(serializer.data, status=201)
     
 class ProductListAPI(APIView):
     permission_classes = [AllowAny]
+    @swagger_auto_schema(
+        operation_summary="Get All Available Products",
+        operation_description="Returns all products with stock_quantity > 0.",
+        responses={200: ProductSerializer(many=True)},
+        tags=["Products"]
+    )
 
     def get(self, request):
 
@@ -1468,7 +1489,12 @@ class ProductListAPI(APIView):
 
 class ProductUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    @swagger_auto_schema(
+        request_body=ProductSerializer,
+        responses={200: ProductSerializer},
+        security=[{"Bearer": []}],
+        tags=["Products - Admin & Vendor"]
+    )
     def put(self, request, pk):
 
         product = get_object_or_404(Product, pk=pk)
@@ -1502,7 +1528,24 @@ class ProductUpdateAPI(APIView):
 
 class ProductDeleteAPI(APIView):
     permission_classes = [IsAuthenticated]
-
+    @swagger_auto_schema(
+        operation_summary="Delete Product (Admin or Owner Vendor)",
+        operation_description="Deletes a product. Only the owning vendor or admin can delete.",
+        responses={
+            200: openapi.Response(
+                description="Product deleted successfully",
+                examples={
+                    "application/json": {
+                        "message": "Product deleted successfully"
+                    }
+                }
+            ),
+            403: "Not allowed to delete this product",
+            404: "Product not found"
+        },
+        security=[{"Bearer": []}],
+        tags=["Products - Admin & Vendor"]
+    )
     def delete(self, request, pk):
 
         product = get_object_or_404(Product, pk=pk)
