@@ -348,12 +348,17 @@ from .models import Product, VendorProfile
 
 class ProductSerializer(serializers.ModelSerializer):
 
+    vendor = serializers.PrimaryKeyRelatedField(
+        queryset=VendorProfile.objects.all(),
+        required=False
+    )
     image = serializers.ImageField(required=False)
     image_url = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = Product
         fields = [
             "id",
+            "vendor",
             "category",
             "name",
             "price",
