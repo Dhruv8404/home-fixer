@@ -1,3 +1,4 @@
+from decimal import Decimal
 from email.mime import image
 import cloudinary.uploader
 
@@ -435,46 +436,130 @@ from .models import Booking
 from rest_framework import serializers
 from datetime import datetime
 from django.utils import timezone
+from .utils import distance_km
 
-
-class BookingCreateSerializer(serializers.Serializer):
-    serviceman_id = serializers.IntegerField()
+class BookingCreateSerializer(serializers.ModelSerializer):
 
     scheduled_date = serializers.DateField()
-    scheduled_time = serializers.TimeField()
+    scheduled_time = serializers.CharField()
 
-    problem_title = serializers.CharField(max_length=255)
-    problem_description = serializers.CharField()
+    service_charge = serializers.SerializerMethodField()
+    platform_fee = serializers.SerializerMethodField()
+    total_cost = serializers.SerializerMethodField()
 
-    job_location_address = serializers.CharField()
-    job_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
-    job_long = serializers.DecimalField(max_digits=11, decimal_places=8)
+    class Meta:
+        model = Booking
+        fields = [
+            "serviceman",
+            "scheduled_date",
+            "scheduled_time",
+            "problem_title",
+            "problem_description",
+            "job_location_address",
+            "job_lat",
+            "job_long",
+            "service_charge",
+            "platform_fee",
+            "total_cost",
+        ]
 
-    # 🔥 IMPORTANT FIX
-    images = serializers.ImageField(
-        required=False,
-        write_only=True
-    )
+    def get_service_charge(self, obj):
+        if obj.serviceman:
+            return obj.serviceman.hourly_charges
+        return 0
 
-    def validate(self, data):
-        scheduled_at = datetime.combine(
-        data["scheduled_date"],
-        data["scheduled_time"]
-    )
+    from decimal import Decimal
 
-    # Convert to timezone-aware datetime
-        scheduled_at = timezone.make_aware(
-        scheduled_at,
-        timezone.get_current_timezone()
-    )
+    def get_platform_fee(self, obj):
+        charge = self.get_service_charge(obj)
+        return charge * Decimal("0.10")
 
-        if scheduled_at < timezone.now():
+    def get_total_cost(self, obj):
+        charge = self.get_service_charge(obj)
+        return charge + (charge * Decimal("0.10"))
+    def validate_scheduled_time(self, value):
+
+        try:
+            return datetime.strptime(value, "%I:%M %p").time()
+
+        except ValueError:
             raise serializers.ValidationError(
-            "Scheduled time must be in future"
+                "Time must be in format HH:MM AM/PM (Example: 10:30 AM)"
+            )
+
+    def validate(self, attrs):
+
+        request = self.context["request"]
+        serviceman = attrs.get("serviceman")
+
+        try:
+            customer = request.user.customerprofile
+        except CustomerProfile.DoesNotExist:
+            raise serializers.ValidationError(
+                "Customer profile not found"
+            )
+
+        if not customer.default_lat or not customer.default_long:
+            raise serializers.ValidationError(
+                "Customer location not available"
+            )
+
+        if not serviceman.current_lat or not serviceman.current_long:
+            raise serializers.ValidationError(
+                "Serviceman location not available"
+            )
+
+        if not serviceman.is_active:
+            raise serializers.ValidationError(
+                "Serviceman is not active"
+            )
+
+        if not serviceman.is_approved:
+            raise serializers.ValidationError(
+                "Serviceman is not approved"
+            )
+
+        dist = distance_km(
+            float(customer.default_lat),
+            float(customer.default_long),
+            float(serviceman.current_lat),
+            float(serviceman.current_long),
         )
 
-        data["scheduled_at"] = scheduled_at
-        return data 
+        if dist > 10:
+            raise serializers.ValidationError(
+                f"Serviceman is {round(dist,2)} km away (must be within 10 km)"
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+
+        request = self.context["request"]
+        customer = request.user.customerprofile
+
+        scheduled_date = validated_data.pop("scheduled_date")
+        scheduled_time = validated_data.pop("scheduled_time")
+
+        scheduled_at = datetime.combine(
+            scheduled_date,
+            scheduled_time
+        )
+
+        serviceman = validated_data.get("serviceman")
+
+        service_charge = serviceman.hourly_charges
+        platform_fee = service_charge * Decimal("0.10")
+        booking = Booking.objects.create(
+            customer=customer,
+            scheduled_at=scheduled_at,
+            total_labor_cost=service_charge,
+            platform_fee=platform_fee,
+            grand_total=service_charge + platform_fee,
+            **validated_data
+        )
+
+        return booking
 
 class BookingResponseSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.user.name")
