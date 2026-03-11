@@ -11,3 +11,4 @@ whitenoise
 pillow
 cloudinary
 django-cloudinary-storage
+python-multipart
