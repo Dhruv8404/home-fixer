@@ -250,32 +250,54 @@ class Booking(models.Model):
         ('CANCELLED', 'Cancelled'),
     ]
 
-    customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE)
-    serviceman = models.ForeignKey(ServicemanProfile, on_delete=models.CASCADE)
+    customer = models.ForeignKey(
+        CustomerProfile,
+        on_delete=models.CASCADE
+    )
 
+    serviceman = models.ForeignKey(
+        ServicemanProfile,
+        on_delete=models.CASCADE
+    )
+
+    # 🔹 Booking schedule
     scheduled_at = models.DateTimeField()
 
-    # 🔥 Problem Section (From UI)
+    # 🔹 Problem details
     problem_title = models.CharField(max_length=255)
-    problem_description = models.TextField()
+    problem_description = models.TextField(blank=True, null=True)
 
-    # 🔥 Price Breakdown (From UI)
+    # 🔹 Cost breakdown
     total_labor_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_material_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     grand_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
+    # 🔹 Job location
     job_location_address = models.TextField(null=True, blank=True)
     job_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     job_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    # 🔹 Status
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING'
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def __str__(self):
+        return f"Booking #{self.id}"
+
 class BookingImage(models.Model):
-    booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name="images")
+
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="images"
+    )
 
     image = CloudinaryField(
         'image',
@@ -285,6 +307,9 @@ class BookingImage(models.Model):
     )
 
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Image for Booking {self.booking.id}"
 
 
 

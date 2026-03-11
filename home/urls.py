@@ -1,9 +1,13 @@
 from django.urls import path
 from . import views
 from .views import (
+    ServiceListAPI,
+    ServiceCreateAPI,
+    ServiceUpdateAPI,
+    ServiceSoftDeleteAPI,
+    BookingCreateAPIView,
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
-    CreateBookingAPI,
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
@@ -20,7 +24,6 @@ from .views import (
     VendorProfileAPI,
     ServicemanProfileAPI,
     CustomerProfileAPI,
-
     CustomerProfileUpdateAPI,
     ProfileAPI,
     VendorProfileUpdateAPI,
@@ -31,7 +34,6 @@ from .views import (
     AdminServicemanControlAPI,
     ProductCreateAPI,
     ProductUpdateAPI,
-    
 )
 
 
@@ -70,8 +72,7 @@ urlpatterns = [
     path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),
 
 
-    path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view()),
-    path("products/<int:pk>/delete/", views.ProductSoftDeleteAPI.as_view()),
+
 
     # Nearby Serviceman API
     path("servicemen/nearby/", NearbyServicemanAPI.as_view()),
@@ -83,7 +84,7 @@ urlpatterns = [
   
     # Categories
     path("categories/", CategoryListAPI.as_view()),          # GET all categories
-    path("admin/categories/create", CategoryCreateAPI.as_view()),    # POST create category
+    path("admin/categories/create/", CategoryCreateAPI.as_view()),    # POST create category
     path("admin/categories/<int:pk>/", CategoryDetailAPI.as_view()),  #
 
 
@@ -106,7 +107,12 @@ urlpatterns = [
     path("vendors/nearby/", NearbyVendorAPI.as_view(), name="vendors-nearby"),
 
 # ================= BOOKINGS =================
-path("bookings/create/", CreateBookingAPI.as_view(), name="booking-create"),
+
+path(
+    "booking/create/",
+    views.BookingCreateAPIView.as_view(),
+    name="booking-create"
+),
 path(
     "booking/<int:booking_id>/cancel/",
     CustomerCancelBookingAPI.as_view(),

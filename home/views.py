@@ -1,3 +1,5 @@
+import cloudinary
+from rest_framework import permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -1075,107 +1077,83 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import Booking, BookingImage
 
-class CreateBookingAPI(APIView):
-    permission_classes = [IsAuthenticated]
+class BookingCreateAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
-        operation_summary="Create Booking (Customer Only)",
-        operation_description="""
-Customer books a serviceman.
-
-• Prevents double booking  
-• Calculates 10% platform fee  
-• Supports multiple image upload  
-""",
+        operation_summary="Create booking with images",
+        manual_parameters=[
+            openapi.Parameter(
+                name="images",
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                description="Upload multiple images",
+                required=False,
+            ),
+        ],
         request_body=BookingCreateSerializer,
         consumes=["multipart/form-data"],
-        responses={
-            201: openapi.Response(
-                description="Booking Created Successfully"
-            ),
-            400: "Validation Error",
-            403: "Only customers can create bookings"
-        },
+        tags=["Bookings"],
         security=[{"Bearer": []}],
-        tags=["Booking"]
     )
     def post(self, request):
 
-        if request.user.role != "CUSTOMER":
-            return Response(
-                {"detail": "Only customers can create bookings"},
-                status=403
-            )
+        serializer = BookingCreateSerializer(
+            data=request.data,
+            context={"request": request}
+        )
 
-        serializer = BookingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
 
-        customer, _ = CustomerProfile.objects.get_or_create(
-        user=request.user
-)
-        serviceman = get_object_or_404(
-            ServicemanProfile,
-            pk=data["serviceman_id"],
-            is_active=True,
-            is_approved=True
-        )
+        booking = serializer.save()
 
-        scheduled_at = data["scheduled_at"]
+        # 🔥 Upload images to Cloudinary
+        files = request.FILES.getlist("images")
 
-        # Prevent double booking
-        if Booking.objects.filter(
-            serviceman=serviceman,
-            scheduled_at=scheduled_at,
-            status__in=["PENDING", "ACCEPTED", "ONGOING"]
-        ).exists():
-            return Response(
-                {"detail": "Serviceman already booked at this time"},
-                status=400
+        image_urls = []
+
+        for file in files:
+            result = cloudinary.uploader.upload(
+                file,
+                folder=f"home_fixer/bookings/{booking.id}/"
             )
 
-        # Price Calculation
-        labor_cost = serviceman.hourly_charges
-        material_cost = Decimal("0.00")
-        platform_fee = labor_cost * Decimal("0.10")
-        grand_total = labor_cost + material_cost + platform_fee
+            image_urls.append(result.get("secure_url"))
 
-        # Create booking
-        booking = Booking.objects.create(
-            customer=customer,
-            serviceman=serviceman,
-            scheduled_at=scheduled_at,
-            problem_title=data["problem_title"],
-            problem_description=data["problem_description"],
-            job_location_address=data["job_location_address"],
-            job_lat=data["job_lat"],
-            job_long=data["job_long"],
-            total_labor_cost=labor_cost,
-            total_material_cost=material_cost,
-            platform_fee=platform_fee,
-            grand_total=grand_total,
-        )
-
-        # Multiple Image Upload (still works)
-        images = request.FILES.getlist("images")
-        for img in images:
             BookingImage.objects.create(
                 booking=booking,
-                image=img
+                image=result.get("secure_url")
             )
 
-        return Response({
-            "message": "Booking Confirmed",
-            "booking_id": booking.id,
-            "price_breakdown": {
-                "labor_cost": labor_cost,
-                "material_cost": material_cost,
-                "platform_fee": platform_fee,
-                "grand_total": grand_total
-            }
-        }, status=201)
+        # 🔥 Price calculation
+        serviceman = booking.serviceman
 
+        from decimal import Decimal
+
+        service_charge = serviceman.hourly_charges
+        platform_fee = service_charge * Decimal("0.10")
+        total_cost = service_charge + platform_fee
+        # Save calculated costs
+        booking.total_labor_cost = service_charge
+        booking.platform_fee = platform_fee
+        booking.grand_total = total_cost
+        booking.save()
+
+        return Response(
+            {
+                "message": "Booking created successfully",
+                "booking_id": booking.id,
+                "price_breakdown": {
+                    "service_charge": service_charge,
+                    "platform_fee": platform_fee,
+                    "total_cost": total_cost
+                },
+                "image_urls": image_urls,
+            },
+            status=status.HTTP_201_CREATED
+        )
+    
 # ================= SERVICE LIST API =================
 
 from .models import Service
