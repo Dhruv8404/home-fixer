@@ -432,11 +432,14 @@ class VendorNearbySerializer(serializers.ModelSerializer):
 
 #--------Booking-serializer---------------------
 # ================= BOOKING SERIALIZERS =================
-from .models import Booking
 from rest_framework import serializers
 from datetime import datetime
-from django.utils import timezone
+from concurrent.futures import ThreadPoolExecutor
+import cloudinary.uploader
+
+from .models import Booking, CustomerProfile
 from .utils import distance_km
+
 
 class BookingCreateSerializer(serializers.ModelSerializer):
 
@@ -455,9 +458,6 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "scheduled_time",
             "problem_title",
             "problem_description",
-            "job_location_address",
-            "job_lat",
-            "job_long",
             "service_charge",
             "platform_fee",
             "total_cost",
@@ -468,20 +468,16 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             return obj.serviceman.hourly_charges
         return 0
 
-    from decimal import Decimal
-
     def get_platform_fee(self, obj):
-        charge = self.get_service_charge(obj)
-        return charge * Decimal("0.10")
+        return 20
 
     def get_total_cost(self, obj):
-        charge = self.get_service_charge(obj)
-        return charge + (charge * Decimal("0.10"))
-    def validate_scheduled_time(self, value):
+        service_charge = self.get_service_charge(obj)
+        return service_charge + 20
 
+    def validate_scheduled_time(self, value):
         try:
             return datetime.strptime(value, "%I:%M %p").time()
-
         except ValueError:
             raise serializers.ValidationError(
                 "Time must be in format HH:MM AM/PM (Example: 10:30 AM)"
@@ -493,42 +489,32 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         serviceman = attrs.get("serviceman")
 
         try:
-            customer = request.user.customerprofile
+            customer_profile = request.user.customerprofile
         except CustomerProfile.DoesNotExist:
-            raise serializers.ValidationError(
-                "Customer profile not found"
-            )
+            raise serializers.ValidationError("Customer profile not found")
 
-        if not customer.default_lat or not customer.default_long:
-            raise serializers.ValidationError(
-                "Customer location not available"
-            )
+        if not customer_profile.default_lat or not customer_profile.default_long:
+            raise serializers.ValidationError("Customer location not available")
 
         if not serviceman.current_lat or not serviceman.current_long:
-            raise serializers.ValidationError(
-                "Serviceman location not available"
-            )
+            raise serializers.ValidationError("Serviceman location not available")
 
         if not serviceman.is_active:
-            raise serializers.ValidationError(
-                "Serviceman is not active"
-            )
+            raise serializers.ValidationError("Serviceman is not active")
 
         if not serviceman.is_approved:
-            raise serializers.ValidationError(
-                "Serviceman is not approved"
-            )
+            raise serializers.ValidationError("Serviceman is not approved")
 
         dist = distance_km(
-            float(customer.default_lat),
-            float(customer.default_long),
+            float(customer_profile.default_lat),
+            float(customer_profile.default_long),
             float(serviceman.current_lat),
             float(serviceman.current_long),
         )
 
         if dist > 10:
             raise serializers.ValidationError(
-                f"Serviceman is {round(dist,2)} km away (must be within 10 km)"
+                f"Serviceman is {round(dist,2)} km away. Must be within 10 km."
             )
 
         return attrs
@@ -536,31 +522,22 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
 
         request = self.context["request"]
-        customer = request.user.customerprofile
+        customer_profile = request.user.customerprofile
 
         scheduled_date = validated_data.pop("scheduled_date")
         scheduled_time = validated_data.pop("scheduled_time")
 
-        scheduled_at = datetime.combine(
-            scheduled_date,
-            scheduled_time
-        )
+        scheduled_at = datetime.combine(scheduled_date, scheduled_time)
 
-        serviceman = validated_data.get("serviceman")
-
-        service_charge = serviceman.hourly_charges
-        platform_fee = service_charge * Decimal("0.10")
         booking = Booking.objects.create(
-            customer=customer,
+            customer=customer_profile,
             scheduled_at=scheduled_at,
-            total_labor_cost=service_charge,
-            platform_fee=platform_fee,
-            grand_total=service_charge + platform_fee,
             **validated_data
         )
 
         return booking
-
+    
+        
 class BookingResponseSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.user.name")
     serviceman_name = serializers.CharField(source="serviceman.user.name")

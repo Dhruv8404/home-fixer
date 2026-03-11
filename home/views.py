@@ -801,7 +801,7 @@ Only ADMIN role allowed.
         profile = get_object_or_404(
             ServicemanProfile,
             pk=pk,
-            is_active=True
+
         )
 
         allowed_fields = ["is_approved", "is_active"]
@@ -1082,21 +1082,20 @@ class BookingCreateAPIView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
-        operation_summary="Create booking with images",
-        manual_parameters=[
-            openapi.Parameter(
-                name="images",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_FILE,
-                description="Upload multiple images",
-                required=False,
-            ),
-        ],
-        request_body=BookingCreateSerializer,
-        consumes=["multipart/form-data"],
-        tags=["Bookings"],
-        security=[{"Bearer": []}],
-    )
+    operation_summary="Create booking",
+    manual_parameters=[
+        openapi.Parameter(
+            name="images",
+            in_=openapi.IN_FORM,
+            type=openapi.TYPE_FILE,
+            description="Upload multiple images",
+            required=False,
+        ),
+    ],
+    request_body=BookingCreateSerializer,
+    consumes=["multipart/form-data"],
+    tags=["Bookings"],
+)
     def post(self, request):
 
         serializer = BookingCreateSerializer(
