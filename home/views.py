@@ -1545,3 +1545,89 @@ class ProductDeleteAPI(APIView):
         return Response({
             "message": "Product deleted successfully"
         })    
+    
+from .serializers import BookingDetailSerializer
+class BookingDetailAPIView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get booking details",
+        tags=["Bookings"],
+        security=[{"Bearer": []}],
+    )
+    def get(self, request, booking_id):
+
+        try:
+            booking = Booking.objects.select_related(
+                "serviceman",
+                "customer"
+            ).prefetch_related("images").get(
+                id=booking_id,
+                customer=request.user.customerprofile
+            )
+
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = BookingDetailSerializer(
+            booking,
+            context={"request": request}
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)    
+
+
+
+class CategoryAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+        operation_summary="Get All Categories / Create Category",
+        operation_description="GET returns all categories. POST creates a new category (Admin only).",
+        request_body=CategorySerializer,
+        responses={
+            200: CategorySerializer(many=True),
+            201: CategorySerializer,
+            403: "Only admin can create category"
+        },
+        security=[{"Bearer": []}],
+        tags=["Categories"]
+    )
+    def get(self, request):
+
+        categories = Category.objects.all()
+
+        serializer = CategorySerializer(categories, many=True)
+
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_summary="Create Category (Admin only)",
+        operation_description="Creates a new category. Only users with ADMIN role can perform this action.",
+        request_body=CategorySerializer,
+        responses={
+            201: CategorySerializer,
+            403: "Only admin can create category"
+        },
+        security=[{"Bearer": []}],
+        tags=["Categories"]
+    )
+    def post(self, request):
+
+        if request.user.role != "ADMIN":
+            return Response(
+                {"error": "Only admin can create category"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = CategorySerializer(data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=201)
+
+        return Response(serializer.errors, status=400)        

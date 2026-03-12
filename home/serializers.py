@@ -560,6 +560,60 @@ class BookingResponseSerializer(serializers.ModelSerializer):
         ]
 
 
+class BookingDetailSerializer(serializers.ModelSerializer):
+
+    serviceman_name = serializers.CharField(source="serviceman.user.full_name", read_only=True)
+    service_category = serializers.CharField(source="serviceman.service_category", read_only=True)
+
+    service_charge = serializers.SerializerMethodField()
+    platform_fee = serializers.SerializerMethodField()
+    total_amount = serializers.SerializerMethodField()
+
+    customer_address = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "status",
+            "scheduled_date",
+            "scheduled_time",
+            "problem_title",
+            "problem_description",
+           "image_urls",
+           "serviceman_name",
+           "service_category",
+            "customer_address",
+            "service_charge",
+            "platform_fee",
+            "total_amount",
+            "created_at",
+        ]
+
+    def get_service_charge(self, obj):
+        return obj.service_charge_at_booking
+
+    def get_platform_fee(self, obj):
+        return obj.platform_fee
+
+    def get_total_amount(self, obj):
+        return obj.total_cost
+
+    def get_customer_address(self, obj):
+        customer = obj.customer
+        if not customer:
+            return None
+
+        return {
+        "address": getattr(customer, "default_address", None),
+        "lat": getattr(customer, "default_lat", None),
+        "long": getattr(customer, "default_long", None),
+        }
+
+
+
+
+
 # ================= SERVICE SERIALIZERS =================
 
 from .models import Service, Category
