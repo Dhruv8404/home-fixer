@@ -214,6 +214,7 @@ class Category(models.Model):
 
 
 
+
 class Service(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
@@ -221,6 +222,10 @@ class Service(models.Model):
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    latitude = models.FloatField(null='True', blank=True)
+    longitude = models.FloatField(null='True', blank=True)
+    def __str__(self):
+        return self.name
 
 class Serviceman(models.Model):
     name = models.CharField(max_length=100)

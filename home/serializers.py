@@ -603,6 +603,22 @@ class BookingDetailSerializer(serializers.ModelSerializer):
         "long": getattr(customer, "default_long", None),
         }
 
+    #Booking tracking response serializer
+class BookingTrackingSerializer(serializers.Serializer):
+    booking_id = serializers.IntegerField()
+    status = serializers.CharField()
+    status_text = serializers.CharField()
+    serviceman_name = serializers.CharField()
+    serviceman_rating = serializers.FloatField()
+    serviceman_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
+    serviceman_long = serializers.DecimalField(max_digits=11, decimal_places=8)
+    customer_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
+    customer_long = serializers.DecimalField(max_digits=11, decimal_places=8)
+    customer_address = serializers.CharField()
+    distance_km = serializers.FloatField()
+    eta_minutes = serializers.IntegerField()
+
+
 
 # ================= SERVICE SERIALIZERS =================
 
