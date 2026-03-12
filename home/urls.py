@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .views import (
+    BookingDetailAPIView,
     ServiceListAPI,
     ServiceCreateAPI,
     ServiceUpdateAPI,
@@ -119,6 +120,8 @@ path(
     name="customer-cancel-booking"
 ),
 path("booking/<int:booking_id>/action/",ServicemanBookingActionAPI.as_view(),name="serviceman-booking-action"),
+path("api/booking/<int:booking_id>/details/", BookingDetailAPIView.as_view(), name="booking-details"),
+
 # ================= SERVICES =================
 path("services/", views.ServiceListAPI.as_view(), name="service-list"),
 path("services/create/", views.ServiceCreateAPI.as_view(), name="service-create"),

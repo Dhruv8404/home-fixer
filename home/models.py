@@ -240,11 +240,15 @@ class ServicemanOffering(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+from django.db import models
+
+
 class Booking(models.Model):
 
     STATUS_CHOICES = [
         ('PENDING', 'Pending'),
         ('ACCEPTED', 'Accepted'),
+        ('REJECTED', 'Rejected'),
         ('ONGOING', 'Ongoing'),
         ('COMPLETED', 'Completed'),
         ('CANCELLED', 'Cancelled'),
@@ -252,33 +256,30 @@ class Booking(models.Model):
 
     customer = models.ForeignKey(
         CustomerProfile,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
     )
 
     serviceman = models.ForeignKey(
         ServicemanProfile,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
     )
 
-    # 🔹 Booking schedule
-    scheduled_at = models.DateTimeField()
+    # Booking form fields
+    scheduled_date = models.DateField()
+    scheduled_time = models.TimeField()
 
-    # 🔹 Problem details
     problem_title = models.CharField(max_length=255)
-    problem_description = models.TextField(blank=True, null=True)
+    problem_description = models.TextField()
 
-    # 🔹 Cost breakdown
-    total_labor_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    total_material_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    grand_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # price snapshot
+    service_charge_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
+    total_cost = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # 🔹 Job location
-    job_location_address = models.TextField(null=True, blank=True)
-    job_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
-    job_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
-
-    # 🔹 Status
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -290,7 +291,7 @@ class Booking(models.Model):
 
     def __str__(self):
         return f"Booking #{self.id}"
-
+    
 class BookingImage(models.Model):
 
     booking = models.ForeignKey(
