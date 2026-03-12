@@ -2,6 +2,7 @@ from django.urls import path
 from . import views
 from .views import (
     BookingDetailAPIView,
+    BookingTrackingAPI,
     ServiceListAPI,
     ServiceCreateAPI,
     ServiceUpdateAPI,
@@ -120,7 +121,13 @@ path(
     name="customer-cancel-booking"
 ),
 path("booking/<int:booking_id>/action/",ServicemanBookingActionAPI.as_view(),name="serviceman-booking-action"),
-path("api/booking/<int:booking_id>/details/", BookingDetailAPIView.as_view(), name="booking-details"),
+path("booking/<int:booking_id>/details/", BookingDetailAPIView.as_view(), name="booking-details"),
+ path("bookings/<int:booking_id>/track/", BookingTrackingAPI.as_view(), name="booking-track"),
+path(
+    "serviceman/bookings/",
+    views.ServicemanBookingRequestsAPI.as_view(),
+    name="serviceman-bookings"
+),
 
 # ================= SERVICES =================
 path("services/", views.ServiceListAPI.as_view(), name="service-list"),
@@ -137,13 +144,7 @@ path("products/<int:pk>/update/", ProductUpdateAPI.as_view()),
 path("products/<int:pk>/delete/", ProductDeleteAPI.as_view()),
 
 
-# ================= SERVICEMAN BOOKINGS =================
 
-path(
-    "serviceman/bookings/",
-    views.ServicemanBookingRequestsAPI.as_view(),
-    name="serviceman-bookings"
-),
 # ================= PRODUCT CATEGORIES =================
 
 path(

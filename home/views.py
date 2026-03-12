@@ -1741,3 +1741,75 @@ class ServicemanBookingRequestsAPI(APIView):
         serializer = BookingDetailSerializer(bookings, many=True)
 
         return Response(serializer.data)
+    
+
+
+
+#=============Booking Tracking API =============#
+
+from .serializers import BookingTrackingSerializer
+
+
+def get_status_text(status):
+
+    status_map = {
+        "PENDING": "Waiting for serviceman to accept",
+        "ACCEPTED": "Serviceman accepted your booking",
+        "REJECTED": "Serviceman rejected the booking",
+        "ONGOING": "Service is currently in progress",
+        "COMPLETED": "Service completed successfully",
+        "CANCELLED": "Booking was cancelled"
+    }
+
+    return status_map.get(status, status)
+
+class BookingTrackingAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, booking_id):
+        try:
+            booking = Booking.objects.select_related("serviceman__user","customer__user").get(id=booking_id, customer__user=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        if not booking.serviceman:
+            return Response({"error": "No serviceman assigned yet"}, status=400)
+
+        serviceman = booking.serviceman
+
+        if not serviceman.current_lat or not serviceman.current_long:
+            return Response({"error": "Serviceman location not available"}, status=400)
+
+        if not booking.customer.default_lat or not booking.customer.default_long:
+            return Response({"error": "Customer location not available in booking"}, status=400)
+
+        dist_km = distance_km(
+    float(booking.customer.default_lat),
+    float(booking.customer.default_long),
+    float(serviceman.current_lat),
+    float(serviceman.current_long)
+)
+
+        eta_minutes = round((dist_km / 25) * 60)
+
+        
+        if eta_minutes < 1:
+            eta_minutes = 1
+
+        data = {
+            "booking_id": booking.id,
+            "status": booking.status,
+            "status_text": get_status_text(booking.status),
+            "serviceman_name": serviceman.user.name or serviceman.user.email,
+            "serviceman_rating": float(serviceman.average_rating or 0),
+            "serviceman_lat": serviceman.current_lat,
+            "serviceman_long": serviceman.current_long,
+            "customer_lat": booking.customer.default_lat,
+"customer_long": booking.customer.default_long,
+"customer_address": booking.customer.default_address or "",
+            "distance_km": round(dist_km, 2),
+            "eta_minutes": eta_minutes,
+        }
+
+        serializer = BookingTrackingSerializer(data)
+        return Response(serializer.data, status=200)
