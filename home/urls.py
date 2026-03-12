@@ -135,4 +135,26 @@ path("products/", ProductListAPI.as_view()),
 path("products/create/", ProductCreateAPI.as_view()),
 path("products/<int:pk>/update/", ProductUpdateAPI.as_view()),
 path("products/<int:pk>/delete/", ProductDeleteAPI.as_view()),
+
+
+# ================= SERVICEMAN BOOKINGS =================
+
+path(
+    "serviceman/bookings/",
+    views.ServicemanBookingRequestsAPI.as_view(),
+    name="serviceman-bookings"
+),
+# ================= PRODUCT CATEGORIES =================
+
+path(
+    "product-categories/",
+    views.ProductCategoryAPI.as_view(),
+    name="product-categories"
+),
+
+path(
+    "product-categories/<int:pk>/delete/",
+    views.ProductCategoryDeleteAPI.as_view(),
+    name="delete-product-category"
+),
 ]

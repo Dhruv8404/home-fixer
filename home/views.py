@@ -1071,88 +1071,103 @@ class NearbyVendorAPI(APIView):
     
 
 # ================= BOOKING APIs =================
-from decimal import Decimal
+#=============Booking Creation API =============#
+from .serializers import BookingCreateSerializer, BookingDetailSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-from .models import Booking, BookingImage
+from rest_framework.decorators import action
+import cloudinary.uploader
+from decimal import Decimal
 
 class BookingCreateAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
-    operation_summary="Create booking",
-    manual_parameters=[
-        openapi.Parameter(
-            name="images",
-            in_=openapi.IN_FORM,
-            type=openapi.TYPE_FILE,
-            description="Upload multiple images",
-            required=False,
-        ),
-    ],
-    request_body=BookingCreateSerializer,
-    consumes=["multipart/form-data"],
-    tags=["Bookings"],
-)
-    def post(self, request):
+        operation_summary="Create booking with images",
+        manual_parameters=[
+            openapi.Parameter(
+                name="images",
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                description="Upload multiple images",
+                required=False,
+            ),
+        ],
+        request_body=BookingCreateSerializer,
+        consumes=["multipart/form-data"],
+        tags=["Bookings"],
+        security=[{"Bearer": []}],
+    )
 
+    def post(self, request):
         serializer = BookingCreateSerializer(
             data=request.data,
             context={"request": request}
         )
 
-        serializer.is_valid(raise_exception=True)
+        if serializer.is_valid(raise_exception=True):
+            booking = serializer.save()
 
-        booking = serializer.save()
+            # 🔥 Handle images here
+            files = request.FILES.getlist("images")
+            image_urls = []
 
-        # 🔥 Upload images to Cloudinary
-        files = request.FILES.getlist("images")
+            for file in files:
+                result = cloudinary.uploader.upload(
+                    file,
+                    folder=f"home_fixer/bookings/{booking.id}/"
+                )
+                image_urls.append(result.get("secure_url"))
 
-        image_urls = []
+            booking.image_urls = (booking.image_urls or []) + image_urls
+            booking.save()
 
-        for file in files:
-            result = cloudinary.uploader.upload(
-                file,
-                folder=f"home_fixer/bookings/{booking.id}/"
-            )
-
-            image_urls.append(result.get("secure_url"))
-
-            BookingImage.objects.create(
-                booking=booking,
-                image=result.get("secure_url")
-            )
-
-        # 🔥 Price calculation
-        serviceman = booking.serviceman
-
-        from decimal import Decimal
-
-        service_charge = serviceman.hourly_charges
-        platform_fee = service_charge * Decimal("0.10")
-        total_cost = service_charge + platform_fee
-        # Save calculated costs
-        booking.total_labor_cost = service_charge
-        booking.platform_fee = platform_fee
-        booking.grand_total = total_cost
-        booking.save()
-
-        return Response(
-            {
-                "message": "Booking created successfully",
-                "booking_id": booking.id,
-                "price_breakdown": {
-                    "service_charge": service_charge,
-                    "platform_fee": platform_fee,
-                    "total_cost": total_cost
+            return Response(
+                {
+                    "message": "Booking created successfully",
+                    "id": booking.id,
+                    "price_breakdown": {
+                    "service_charge": booking.serviceman.hourly_charges,
+                    "platform_fee": round(booking.serviceman.hourly_charges * Decimal("0.10"), 2),
+                    "total_cost": booking.serviceman.hourly_charges + round(booking.serviceman.hourly_charges * Decimal("0.10"), 2)
+                    },
+                    "image_urls": booking.image_urls,
                 },
-                "image_urls": image_urls,
-            },
-            status=status.HTTP_201_CREATED
-        )
-    
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class BookingDetailAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get booking details",
+        tags=["Bookings"],
+        security=[{"Bearer": []}],
+    )
+
+    def get(self, request, booking_id):
+
+        try:
+            booking = Booking.objects.select_related(
+                "serviceman",
+                "customer"
+            ).get(
+                id=booking_id,
+                customer=request.user.customerprofile
+            )
+
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = BookingDetailSerializer(booking)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+   
 # ================= SERVICE LIST API =================
 
 from .models import Service
@@ -1546,40 +1561,6 @@ class ProductDeleteAPI(APIView):
             "message": "Product deleted successfully"
         })    
     
-from .serializers import BookingDetailSerializer
-class BookingDetailAPIView(APIView):
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Get booking details",
-        tags=["Bookings"],
-        security=[{"Bearer": []}],
-    )
-    def get(self, request, booking_id):
-
-        try:
-            booking = Booking.objects.select_related(
-                "serviceman",
-                "customer"
-            ).prefetch_related("images").get(
-                id=booking_id,
-                customer=request.user.customerprofile
-            )
-
-        except Booking.DoesNotExist:
-            return Response(
-                {"error": "Booking not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        serializer = BookingDetailSerializer(
-            booking,
-            context={"request": request}
-        )
-
-        return Response(serializer.data, status=status.HTTP_200_OK)    
-
 
 
 class CategoryAPIView(APIView):
@@ -1630,4 +1611,122 @@ class CategoryAPIView(APIView):
             serializer.save()
             return Response(serializer.data, status=201)
 
-        return Response(serializer.errors, status=400)        
+        return Response(serializer.errors, status=400)      
+
+
+
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from .models import Category
+from .serializers import CategorySerializer
+from .permissions import IsAdminRole
+from rest_framework import status
+
+class ProductCategoryAPI(APIView):
+
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_summary="Get all product categories",
+        responses={200: CategorySerializer(many=True)},
+        tags=["Product Categories"]
+    )
+    def get(self, request):
+
+        categories = Category.objects.filter(category_type="PRODUCT")
+
+        serializer = CategorySerializer(categories, many=True)
+
+        return Response(serializer.data)
+
+
+    @swagger_auto_schema(
+        operation_summary="Create product category (Admin only)",
+        request_body=CategorySerializer,
+        responses={201: CategorySerializer},
+        security=[{"Bearer": []}],
+        tags=["Product Categories"]
+    )
+    def post(self, request):
+
+        if request.user.role != "ADMIN":
+            return Response(
+                {"error": "Only admin can create category"},
+                status=403
+            )
+
+        data = request.data.copy()
+        data["category_type"] = "PRODUCT"
+
+        serializer = CategorySerializer(data=data)
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=201)
+    
+class ProductCategoryDeleteAPI(APIView):
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Delete product category (Admin only)",
+        responses={200: "Category deleted"},
+        security=[{"Bearer": []}],
+        tags=["Product Categories"]
+    )
+
+    def delete(self, request, pk):
+
+        category = get_object_or_404(
+            Category,
+            pk=pk,
+            category_type="PRODUCT"
+        )
+
+        category.delete()
+
+        return Response({
+            "message": "Product category deleted successfully"
+        })
+#====================SERVICEMAN BOOKING LIST API =================
+class ServicemanBookingRequestsAPI(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get bookings assigned to logged-in serviceman",
+        responses={200: BookingDetailSerializer(many=True)},
+        security=[{"Bearer": []}],
+        tags=["Serviceman Bookings"]
+    )
+
+    def get(self, request):
+
+        # Only serviceman allowed
+        if request.user.role != "SERVICEMAN":
+            return Response(
+                {"error": "Only serviceman can access this"},
+                status=403
+            )
+
+        try:
+            serviceman = ServicemanProfile.objects.get(user=request.user)
+        except ServicemanProfile.DoesNotExist:
+            return Response(
+                {"error": "Serviceman profile not found"},
+                status=404
+            )
+
+        # ⭐ ONLY BOOKINGS ASSIGNED TO THIS SERVICEMAN
+        bookings = Booking.objects.filter(
+            serviceman=serviceman
+        ).order_by("-created_at")
+
+        serializer = BookingDetailSerializer(bookings, many=True)
+
+        return Response(serializer.data)

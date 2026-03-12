@@ -260,34 +260,30 @@ class Booking(models.Model):
         null=True,
         blank=True
     )
-
     serviceman = models.ForeignKey(
-        ServicemanProfile,
+        ServicemanProfile, 
         on_delete=models.CASCADE,
         null=True,
         blank=True
     )
 
-    # Booking form fields
+    # 👇 NEW FIELDS (Booking Form)
     scheduled_date = models.DateField()
     scheduled_time = models.TimeField()
-
     problem_title = models.CharField(max_length=255)
     problem_description = models.TextField()
+    image_urls = models.JSONField(default=list, blank=True)
 
-    # price snapshot
+     # ⭐ PRICE SNAPSHOT (NEW)
     service_charge_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
     total_cost = models.DecimalField(max_digits=10, decimal_places=2)
 
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='PENDING'
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
 
     def __str__(self):
         return f"Booking #{self.id}"

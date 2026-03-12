@@ -432,23 +432,18 @@ class VendorNearbySerializer(serializers.ModelSerializer):
 
 #--------Booking-serializer---------------------
 # ================= BOOKING SERIALIZERS =================
-from rest_framework import serializers
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-import cloudinary.uploader
 
-from .models import Booking, CustomerProfile
+
+    #Booking Serializer
+from rest_framework.exceptions import ValidationError
+from .models import ServicemanProfile,Booking
 from .utils import distance_km
-
+from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
+from datetime import datetime
 
 class BookingCreateSerializer(serializers.ModelSerializer):
-
-    scheduled_date = serializers.DateField()
     scheduled_time = serializers.CharField()
-
-    service_charge = serializers.SerializerMethodField()
-    platform_fee = serializers.SerializerMethodField()
-    total_cost = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -458,33 +453,19 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "scheduled_time",
             "problem_title",
             "problem_description",
-            "service_charge",
-            "platform_fee",
-            "total_cost",
         ]
 
-    def get_service_charge(self, obj):
-        if obj.serviceman:
-            return obj.serviceman.hourly_charges
-        return 0
-
-    def get_platform_fee(self, obj):
-        return 20
-
-    def get_total_cost(self, obj):
-        service_charge = self.get_service_charge(obj)
-        return service_charge + 20
-
+        
     def validate_scheduled_time(self, value):
         try:
-            return datetime.strptime(value, "%I:%M %p").time()
+            time_obj = datetime.strptime(value, "%I:%M %p").time()
+            return time_obj
         except ValueError:
             raise serializers.ValidationError(
-                "Time must be in format HH:MM AM/PM (Example: 10:30 AM)"
+                "Time must be in format HH:MM AM/PM (e.g. 10:30 AM)"
             )
 
     def validate(self, attrs):
-
         request = self.context["request"]
         serviceman = attrs.get("serviceman")
 
@@ -493,6 +474,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         except CustomerProfile.DoesNotExist:
             raise serializers.ValidationError("Customer profile not found")
 
+        # Location checks
         if not customer_profile.default_lat or not customer_profile.default_long:
             raise serializers.ValidationError("Customer location not available")
 
@@ -519,46 +501,57 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def create(self, validated_data):
+    def validate_images(self, images):
 
+        if len(images) > 4:
+            raise serializers.ValidationError("Maximum 4 images allowed.")
+
+        for image in images:
+            if image.size > 5 * 1024 * 1024:   # 5MB
+                raise serializers.ValidationError(
+                    "Each image must be smaller than 5MB."
+                )
+        return images
+
+    def upload_to_cloudinary(image):
+        image.seek(0)
+
+        result = cloudinary.uploader.upload(
+            image,
+            folder="homefixer/bookings/"
+            )
+        return result["secure_url"]
+
+    def create(self, validated_data):
         request = self.context["request"]
         customer_profile = request.user.customerprofile
+        serviceman = validated_data["serviceman"]
 
-        scheduled_date = validated_data.pop("scheduled_date")
-        scheduled_time = validated_data.pop("scheduled_time")
+        images = validated_data.pop("images", [])
 
-        scheduled_at = datetime.combine(scheduled_date, scheduled_time)
+        # ⭐ DEFINE PRICE
+        service_charge = serviceman.hourly_charges
+        platform_fee = Decimal("20.00")
+        total_cost = service_charge + platform_fee
+
+        uploaded_urls = []
+
+        if images:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                uploaded_urls = list(
+                    executor.map(self.upload_to_cloudinary, images)
+                )
 
         booking = Booking.objects.create(
             customer=customer_profile,
-            scheduled_at=scheduled_at,
+            image_urls=uploaded_urls if uploaded_urls else [],
+            service_charge_at_booking=service_charge,
+            platform_fee=platform_fee,
+            total_cost=total_cost,
             **validated_data
         )
 
         return booking
-    
-        
-class BookingResponseSerializer(serializers.ModelSerializer):
-    customer_name = serializers.CharField(source="customer.user.name")
-    serviceman_name = serializers.CharField(source="serviceman.user.name")
-
-    class Meta:
-        model = Booking
-        fields = [
-            "id",
-            "customer_name",
-            "serviceman_name",
-            "scheduled_at",
-            "problem_title",
-            "problem_description",
-            "total_labor_cost",
-            "total_material_cost",
-            "platform_fee",
-            "grand_total",
-            "status",
-            "job_location_address",
-        ]
-
 
 class BookingDetailSerializer(serializers.ModelSerializer):
 
@@ -609,9 +602,6 @@ class BookingDetailSerializer(serializers.ModelSerializer):
         "lat": getattr(customer, "default_lat", None),
         "long": getattr(customer, "default_long", None),
         }
-
-
-
 
 
 # ================= SERVICE SERIALIZERS =================
