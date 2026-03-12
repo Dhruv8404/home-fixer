@@ -1146,17 +1146,13 @@ class BookingDetailAPIView(APIView):
         tags=["Bookings"],
         security=[{"Bearer": []}],
     )
-
     def get(self, request, booking_id):
 
         try:
             booking = Booking.objects.select_related(
                 "serviceman",
                 "customer"
-            ).get(
-                id=booking_id,
-                customer=request.user.customerprofile
-            )
+            ).get(id=booking_id)
 
         except Booking.DoesNotExist:
             return Response(
@@ -1164,10 +1160,25 @@ class BookingDetailAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # CUSTOMER can see only their booking
+        if request.user.role == "CUSTOMER":
+            if booking.customer.user != request.user:
+                return Response(
+                    {"error": "You cannot view this booking"},
+                    status=403
+                )
+
+        # SERVICEMAN can see only assigned booking
+        if request.user.role == "SERVICEMAN":
+            if booking.serviceman.user != request.user:
+                return Response(
+                    {"error": "You are not assigned to this booking"},
+                    status=403
+                )
+
         serializer = BookingDetailSerializer(booking)
 
-        return Response(serializer.data, status=status.HTTP_200_OK)
-   
+        return Response(serializer.data)
 # ================= SERVICE LIST API =================
 
 from .models import Service
@@ -1309,50 +1320,50 @@ class ServicemanBookingActionAPI(APIView):
 
         if request.user.role != "SERVICEMAN":
             return Response(
-                {"detail": "Only serviceman can perform this action"},
-                status=403
-            )
+            {"detail": "Only serviceman can perform this action"},
+            status=403
+        )
 
         booking = get_object_or_404(Booking, pk=booking_id)
 
         serviceman = get_object_or_404(
-            ServicemanProfile,
-            user=request.user
+        ServicemanProfile,
+        user=request.user
         )
 
         if booking.serviceman != serviceman:
             return Response(
-                {"detail": "You are not assigned to this booking"},
-                status=403
-            )
+            {"detail": "You are not assigned to this booking"},
+            status=403
+        )
+
+    # ⭐ Only PENDING bookings can be acted on
+        if booking.status != "PENDING":
+            return Response(
+            {"detail": "This booking cannot be modified anymore"},
+            status=400
+        )
 
         action = request.data.get("action")
 
         if action == "accept":
             booking.status = "ACCEPTED"
-            booking.save()
-
-            return Response({
-                "message": "Booking accepted successfully",
-                "status": booking.status
-            })
 
         elif action == "reject":
             booking.status = "CANCELLED"
-            booking.save()
-
-            return Response({
-                "message": "Serviceman cannot come for this booking",
-                "status": booking.status
-            })
 
         else:
             return Response(
-                {"detail": "Invalid action. Use accept or reject"},
-                status=400
-            )        
+            {"detail": "Invalid action. Use accept or reject"},
+            status=400
+        )
 
+        booking.save()
 
+        return Response({
+            "message": f"Booking {action}ed successfully",
+            "status": booking.status
+    })
 class CustomerCancelBookingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
