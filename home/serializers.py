@@ -555,8 +555,12 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
 class BookingDetailSerializer(serializers.ModelSerializer):
 
-    serviceman_name = serializers.CharField(source="serviceman.user.full_name", read_only=True)
-    service_category = serializers.CharField(source="serviceman.service_category", read_only=True)
+    serviceman_name = serializers.CharField(
+        source="serviceman.user.name",
+        read_only=True
+    )
+
+    serviceman_skills = serializers.SerializerMethodField()
 
     service_charge = serializers.SerializerMethodField()
     platform_fee = serializers.SerializerMethodField()
@@ -573,15 +577,20 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             "scheduled_time",
             "problem_title",
             "problem_description",
-           "image_urls",
-           "serviceman_name",
-           "service_category",
+            "image_urls",
+            "serviceman_name",
+            "serviceman_skills",
             "customer_address",
             "service_charge",
             "platform_fee",
             "total_amount",
             "created_at",
         ]
+
+    def get_serviceman_skills(self, obj):
+        if obj.serviceman:
+            return obj.serviceman.skills
+        return []
 
     def get_service_charge(self, obj):
         return obj.service_charge_at_booking
@@ -598,11 +607,11 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             return None
 
         return {
-        "address": getattr(customer, "default_address", None),
-        "lat": getattr(customer, "default_lat", None),
-        "long": getattr(customer, "default_long", None),
+            "address": getattr(customer, "default_address", None),
+            "lat": getattr(customer, "default_lat", None),
+            "long": getattr(customer, "default_long", None),
         }
-
+    
     #Booking tracking response serializer
 class BookingTrackingSerializer(serializers.Serializer):
     booking_id = serializers.IntegerField()
@@ -617,7 +626,10 @@ class BookingTrackingSerializer(serializers.Serializer):
     customer_address = serializers.CharField()
     distance_km = serializers.FloatField()
     eta_minutes = serializers.IntegerField()
-
+    image_urls = serializers.ListField(
+        child=serializers.URLField(),
+        required=False
+    )
 
 
 # ================= SERVICE SERIALIZERS =================
