@@ -1805,10 +1805,11 @@ class BookingTrackingAPI(APIView):
             "serviceman_lat": serviceman.current_lat,
             "serviceman_long": serviceman.current_long,
             "customer_lat": booking.customer.default_lat,
-"customer_long": booking.customer.default_long,
-"customer_address": booking.customer.default_address or "",
+            "customer_long": booking.customer.default_long,
+            "customer_address": booking.customer.default_address or "",
             "distance_km": round(dist_km, 2),
             "eta_minutes": eta_minutes,
+            "image_urls": booking.image_urls or []
         }
 
         serializer = BookingTrackingSerializer(data)
