@@ -68,3 +68,18 @@ def distance_km(lat1, lon1, lat2, lon2):
     dlon = radians(lon2 - lon1)
     a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlon/2)**2
     return R * 2 * asin(sqrt(a))
+
+
+
+import cloudinary.uploader
+
+def delete_cloudinary_image(field):
+
+    if not field:
+        return
+
+    try:
+        if hasattr(field, "public_id"):
+            cloudinary.uploader.destroy(field.public_id)
+    except Exception:
+        pass

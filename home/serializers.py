@@ -1,7 +1,6 @@
 from decimal import Decimal
-from email.mime import image
 import cloudinary.uploader
-
+from .utils import delete_cloudinary_image
 from rest_framework import serializers
 from .models import   User , CustomerProfile, ServicemanProfile, VendorProfile
 import re
@@ -119,17 +118,13 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
             return obj.profile_image.url
         return None
     def update(self, instance, validated_data):
-        new_image = validated_data.get("profile_image", None)
+
+        new_image = validated_data.get("profile_image")
 
         if new_image and instance.profile_image:
-            try:
-                public_id = instance.profile_image.public_id if instance.profile_image else None
-                cloudinary.uploader.destroy(public_id)
-            except Exception:
-                pass
+            delete_cloudinary_image(instance.profile_image)
 
         return super().update(instance, validated_data)
-
 
 
 class ServicemanProfileSerializer(serializers.ModelSerializer):
@@ -186,21 +181,17 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             return [skill.strip() for skill in value.split(",")]
         return []
     def update(self, instance, validated_data):
+
         file_fields = ["profile_image", "kyc_document"]
 
         for field in file_fields:
-            new_file = validated_data.get(field, None)
+            new_file = validated_data.get(field)
             old_file = getattr(instance, field)
 
             if new_file and old_file:
-                try:
-                    cloudinary.uploader.destroy(old_file.public_id)
-                except Exception:
-                    pass
+                delete_cloudinary_image(old_file)
 
         return super().update(instance, validated_data)
-    
-
 
 class VendorProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source="user_id", read_only=True)    
@@ -288,17 +279,13 @@ class VendorProfileSerializer(serializers.ModelSerializer):
         ]
 
         for field in file_fields:
-            new_file = validated_data.get(field, None)
+            new_file = validated_data.get(field)
             old_file = getattr(instance, field)
 
             if new_file and old_file:
-                try:
-                    cloudinary.uploader.destroy(old_file.public_id)
-                except Exception:
-                    pass
+                delete_cloudinary_image(old_file)
 
         return super().update(instance, validated_data)
-
 
 
 
@@ -346,15 +333,16 @@ class CategorySerializer(serializers.ModelSerializer):
 from rest_framework import serializers
 from .models import Product, VendorProfile
 
-
 class ProductSerializer(serializers.ModelSerializer):
 
     vendor = serializers.PrimaryKeyRelatedField(
         queryset=VendorProfile.objects.all(),
         required=False
     )
+
     image = serializers.ImageField(required=False)
     image_url = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Product
         fields = [
@@ -371,25 +359,32 @@ class ProductSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["created_at", "updated_at"]
+
     def get_image_url(self, obj):
         if obj.image:
             return obj.image.url
         return None
-    def validate_stock_quantity(self, value):
-        if value < 0:
-            raise serializers.ValidationError("Stock cannot be negative")
-        return value
+
+
+    def update(self, instance, validated_data):
+
+        new_image = validated_data.get("image")
+
+        if new_image and instance.image:
+            delete_cloudinary_image(instance.image)
+
+        return super().update(instance, validated_data)
+
     def create(self, validated_data):
+
         request = self.context["request"]
 
-        # vendor automatically assigned
         if request.user.role == "VENDOR":
             vendor = VendorProfile.objects.get(user=request.user)
             validated_data["vendor"] = vendor
 
         return Product.objects.create(**validated_data)
-
+    
 
 
 # Serviceman
