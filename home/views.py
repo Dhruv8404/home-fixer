@@ -28,7 +28,7 @@ from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from .permissions import IsAdminOrCustomer
-
+from .utils import delete_cloudinary_image
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
@@ -1555,23 +1555,23 @@ class ProductDeleteAPI(APIView):
 
         if request.user.role == "VENDOR":
             if product.vendor.user != request.user:
-                return Response(
-                    {"detail": "You can delete only your products"},
-                    status=403
-                )
+                return Response({"detail": "You can delete only your products"}, status=403)
 
         elif request.user.role != "ADMIN":
-            return Response(
-                {"detail": "Not allowed"},
-                status=403
-            )
+            return Response({"detail": "Not allowed"}, status=403)
+
+        # Delete image from Cloudinary
+        if product.image:
+            delete_cloudinary_image(product.image)
+            try:
+                if hasattr(product.image, "public_id"):
+                    cloudinary.uploader.destroy(product.image.public_id)
+            except Exception:
+                pass
 
         product.delete()
 
-        return Response({
-            "message": "Product deleted successfully"
-        })    
-    
+        return Response({"message": "Product deleted successfully"})
 
 
 class CategoryAPIView(APIView):
