@@ -130,7 +130,7 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source="user_id", read_only=True)
     name = serializers.CharField(source="user.name", read_only=True)        
-    hourly_charges = serializers.DecimalField(
+    visiting_charge = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
         required=False
@@ -157,7 +157,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             "current_lat",
             "current_long",
             "experience_years",
-            "hourly_charges",     # ✅ NEW
+            "visiting_charge",     # ✅ NEW
             "skills",             # ✅ NEW
             "average_rating",
             "profile_image",
@@ -525,7 +525,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         images = validated_data.pop("images", [])
 
         # ⭐ DEFINE PRICE
-        service_charge = serviceman.hourly_charges
+        service_charge = serviceman.visiting_charge
         platform_fee = Decimal("20.00")
         total_cost = service_charge + platform_fee
 
@@ -587,9 +587,8 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             return obj.serviceman.skills
         return []
 
-    def get_service_charge(self, obj):
+    def get_visiting_charge(self, obj):
         return obj.service_charge_at_booking
-
     def get_platform_fee(self, obj):
         return obj.platform_fee
 
