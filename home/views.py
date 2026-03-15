@@ -1127,9 +1127,9 @@ class BookingCreateAPIView(APIView):
                     "message": "Booking created successfully",
                     "id": booking.id,
                     "price_breakdown": {
-                    "service_charge": booking.serviceman.hourly_charges,
-                    "platform_fee": round(booking.serviceman.hourly_charges * Decimal("0.10"), 2),
-                    "total_cost": booking.serviceman.hourly_charges + round(booking.serviceman.hourly_charges * Decimal("0.10"), 2)
+                    "visiting_charge": booking.serviceman.visiting_charge,
+                    "platform_fee": round(booking.serviceman.visiting_charge * Decimal("0.10"), 2),
+                    "total_cost": booking.serviceman.visiting_charge + round(booking.serviceman.visiting_charge * Decimal("0.10"), 2)
                     },
                     "image_urls": booking.image_urls,
                 },

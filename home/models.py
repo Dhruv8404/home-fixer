@@ -95,12 +95,12 @@ class ServicemanProfile(models.Model):
 
     experience_years = models.IntegerField(default=0)
 
-    # ✅ NEW: Hourly Charges
-    hourly_charges = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
+    # ✅ NEW: Visiting Charges
+    visiting_charge = models.DecimalField(
+    max_digits=10,
+    decimal_places=2,
+    default=0
+)
 
     # ✅ NEW: Skills (stored as JSON list)
     skills = models.JSONField(default=list, blank=True)
