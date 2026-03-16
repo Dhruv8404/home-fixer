@@ -587,8 +587,10 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             return obj.serviceman.skills
         return []
 
-    def get_visiting_charge(self, obj):
+    # ✅ FIXED
+    def get_service_charge(self, obj):
         return obj.service_charge_at_booking
+
     def get_platform_fee(self, obj):
         return obj.platform_fee
 
@@ -605,7 +607,7 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             "lat": getattr(customer, "default_lat", None),
             "long": getattr(customer, "default_long", None),
         }
-    
+        
     #Booking tracking response serializer
 class BookingTrackingSerializer(serializers.Serializer):
     booking_id = serializers.IntegerField()
