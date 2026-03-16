@@ -1,3 +1,5 @@
+import profile
+
 import cloudinary
 from rest_framework import permissions
 from rest_framework.views import APIView
@@ -1734,10 +1736,12 @@ class ServicemanBookingRequestsAPI(APIView):
             )
 
         # ⭐ ONLY BOOKINGS ASSIGNED TO THIS SERVICEMAN
-        bookings = Booking.objects.filter(
+        bookings = Booking.objects.select_related(
+            "customer__user",
+            "serviceman__user"
+        ).filter(
             serviceman=serviceman
         ).order_by("-created_at")
-
         serializer = BookingDetailSerializer(bookings, many=True)
 
         return Response(serializer.data)
@@ -1784,15 +1788,19 @@ class BookingTrackingAPI(APIView):
             return Response({"error": "Customer location not available in booking"}, status=400)
 
         dist_km = distance_km(
-    float(booking.customer.default_lat),
-    float(booking.customer.default_long),
-    float(serviceman.current_lat),
-    float(serviceman.current_long)
-)
+            float(booking.customer.default_lat),
+            float(booking.customer.default_long),
+            float(serviceman.current_lat),
+            float(serviceman.current_long)
+        )
 
-        eta_minutes = round((dist_km / 25) * 60)
+        # ⭐ Detect serviceman arrival (within 100 meters)
+        if dist_km < 0.1 and booking.status == "ACCEPTED":
+            booking.status = "ONGOING"
+            booking.save()    
 
-        
+
+        eta_minutes = round((dist_km / 30) * 60)
         if eta_minutes < 1:
             eta_minutes = 1
 
@@ -1804,6 +1812,10 @@ class BookingTrackingAPI(APIView):
             "serviceman_rating": float(serviceman.average_rating or 0),
             "serviceman_lat": serviceman.current_lat,
             "serviceman_long": serviceman.current_long,
+            "customer_name": booking.customer.user.name,
+            "customer_image": 
+                    booking.customer.profile_image.url
+                    if booking.customer.profile_image else None,
             "customer_lat": booking.customer.default_lat,
             "customer_long": booking.customer.default_long,
             "customer_address": booking.customer.default_address or "",
@@ -1812,5 +1824,71 @@ class BookingTrackingAPI(APIView):
             "image_urls": booking.image_urls or []
         }
 
-        serializer = BookingTrackingSerializer(data)
-        return Response(serializer.data, status=200)
+        serializer = BookingTrackingSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data)
+    
+
+
+class ServicemanLocationUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Serviceman: Update Live Location",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "lat": openapi.Schema(type=openapi.TYPE_NUMBER),
+                "lon": openapi.Schema(type=openapi.TYPE_NUMBER),
+            },
+            required=["lat", "lon"],
+            example={
+                "lat": 21.7051,
+                "lon": 72.9959
+            }
+        ),
+        responses={200: "Location updated"},
+        security=[{"Bearer": []}],
+        tags=["Serviceman Location"]
+    )
+    def patch(self, request):
+
+        if request.user.role != "SERVICEMAN":
+            return Response(
+                {"detail": "Only serviceman can update location"},
+                status=403
+            )
+
+        lat = request.data.get("lat")
+        lon = request.data.get("lon")
+
+        if lat is None or lon is None:
+            return Response(
+                {"detail": "Latitude and longitude required"},
+                status=400
+            )
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            return Response(
+                {"detail": "Invalid coordinates"},
+                status=400
+            )
+
+        profile = get_object_or_404(
+            ServicemanProfile,
+            user=request.user
+        )
+
+        profile.current_lat = lat
+        profile.current_long = lon
+        profile.is_online = True
+        profile.save()
+
+        return Response({
+            "message": "Location updated successfully",
+            "lat": lat,
+            "lon": lon
+        })

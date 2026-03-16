@@ -70,8 +70,9 @@ INSTALLED_APPS = [
     'drf_yasg',
     'cloudinary',
     'cloudinary_storage',
+    "channels",
 ]
-
+ASGI_APPLICATION = "homefixerapi.asgi.application"
 
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -242,3 +243,8 @@ SWAGGER_SETTINGS = {
     },
 }
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}

@@ -20,6 +20,7 @@ from .views import (
     RegisterVerifyOTPAPI,
     RegisterCompleteAPI,
     ServicemanBookingActionAPI,
+    ServicemanLocationUpdateAPI,
     ServicemanProfileUpdateAPI,
     UserProfileAPI,
     LogoutAPI,
@@ -152,10 +153,12 @@ path(
     views.ProductCategoryAPI.as_view(),
     name="product-categories"
 ),
-
 path(
     "product-categories/<int:pk>/delete/",
     views.ProductCategoryDeleteAPI.as_view(),
     name="delete-product-category"
 ),
+#  LIVE LOCATION UPDATE
+path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),
+
 ]

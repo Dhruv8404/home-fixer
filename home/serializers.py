@@ -556,7 +556,13 @@ class BookingDetailSerializer(serializers.ModelSerializer):
     )
 
     serviceman_skills = serializers.SerializerMethodField()
+    
+    customer_name = serializers.CharField(
+        source="customer.user.name",
+        read_only=True
+    )
 
+    customer_image = serializers.SerializerMethodField()
     service_charge = serializers.SerializerMethodField()
     platform_fee = serializers.SerializerMethodField()
     total_amount = serializers.SerializerMethodField()
@@ -573,6 +579,8 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             "problem_title",
             "problem_description",
             "image_urls",
+            "customer_name",
+            "customer_image",
             "serviceman_name",
             "serviceman_skills",
             "customer_address",
@@ -596,7 +604,12 @@ class BookingDetailSerializer(serializers.ModelSerializer):
 
     def get_total_amount(self, obj):
         return obj.total_cost
+    def get_customer_image(self, obj):
 
+        if obj.customer and obj.customer.profile_image:
+            return obj.customer.profile_image.url
+
+        return None
     def get_customer_address(self, obj):
         customer = obj.customer
         if not customer:
@@ -617,6 +630,8 @@ class BookingTrackingSerializer(serializers.Serializer):
     serviceman_rating = serializers.FloatField()
     serviceman_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
     serviceman_long = serializers.DecimalField(max_digits=11, decimal_places=8)
+    customer_name = serializers.CharField()
+    customer_image = serializers.URLField(required=False)
     customer_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
     customer_long = serializers.DecimalField(max_digits=11, decimal_places=8)
     customer_address = serializers.CharField()
