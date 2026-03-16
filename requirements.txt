@@ -12,3 +12,5 @@ pillow
 cloudinary
 django-cloudinary-storage
 python-multipart
+channels
+channels-redis
