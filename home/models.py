@@ -93,6 +93,9 @@ class ServicemanProfile(models.Model):
     current_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     current_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
 
+    # 🔵 LIVE LOCATION (NEW)
+    live_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
+    live_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
     experience_years = models.IntegerField(default=0)
 
     # ✅ NEW: Visiting Charges
@@ -222,8 +225,8 @@ class Service(models.Model):
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    latitude = models.FloatField(null='True', blank=True)
-    longitude = models.FloatField(null='True', blank=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
     def __str__(self):
         return self.name
 
@@ -245,7 +248,6 @@ class ServicemanOffering(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-from django.db import models
 
 
 class Booking(models.Model):

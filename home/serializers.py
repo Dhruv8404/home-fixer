@@ -156,6 +156,8 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             "is_active",
             "current_lat",
             "current_long",
+            "live_lat",
+            "live_long",
             "experience_years",
             "visiting_charge",     # ✅ NEW
             "skills",             # ✅ NEW
@@ -330,7 +332,6 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 
-from rest_framework import serializers
 from .models import Product, VendorProfile
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -507,7 +508,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                     "Each image must be smaller than 5MB."
                 )
         return images
-
+    @staticmethod
     def upload_to_cloudinary(image):
         image.seek(0)
 
@@ -646,7 +647,6 @@ class BookingTrackingSerializer(serializers.Serializer):
 # ================= SERVICE SERIALIZERS =================
 
 from .models import Service, Category
-from rest_framework import serializers
 
 
 class ServiceSerializer(serializers.ModelSerializer):
@@ -683,3 +683,8 @@ class ServiceSerializer(serializers.ModelSerializer):
                 "Service name must be at least 3 characters"
             )
         return value
+    
+
+class LocationUpdateSerializer(serializers.Serializer):
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()    

@@ -1781,17 +1781,20 @@ class BookingTrackingAPI(APIView):
 
         serviceman = booking.serviceman
 
-        if not serviceman.current_lat or not serviceman.current_long:
+        if not (serviceman.live_lat or serviceman.current_lat):
             return Response({"error": "Serviceman location not available"}, status=400)
-
+        
         if not booking.customer.default_lat or not booking.customer.default_long:
             return Response({"error": "Customer location not available in booking"}, status=400)
+
+        serviceman_lat = float(serviceman.live_lat or serviceman.current_lat)
+        serviceman_long = float(serviceman.live_long or serviceman.current_long)
 
         dist_km = distance_km(
             float(booking.customer.default_lat),
             float(booking.customer.default_long),
-            float(serviceman.current_lat),
-            float(serviceman.current_long)
+            serviceman_lat,
+            serviceman_long
         )
 
         # ⭐ Detect serviceman arrival (within 100 meters)
@@ -1810,8 +1813,8 @@ class BookingTrackingAPI(APIView):
             "status_text": get_status_text(booking.status),
             "serviceman_name": serviceman.user.name or serviceman.user.email,
             "serviceman_rating": float(serviceman.average_rating or 0),
-            "serviceman_lat": serviceman.current_lat,
-            "serviceman_long": serviceman.current_long,
+            "serviceman_lat": serviceman.live_lat or serviceman.current_lat,
+            "serviceman_long": serviceman.live_long or serviceman.current_long,
             "customer_name": booking.customer.user.name,
             "customer_image": 
                     booking.customer.profile_image.url
@@ -1829,25 +1832,53 @@ class BookingTrackingAPI(APIView):
         return Response(serializer.data)
     
 
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class ServicemanLocationUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="Serviceman: Update Live Location",
+        operation_description="""
+Update real-time location of serviceman.
+
+• Updates `live_lat` and `live_long`
+• Used for tracking and ETA
+• Does NOT affect base location (current_lat, current_long)
+""",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            properties={
-                "lat": openapi.Schema(type=openapi.TYPE_NUMBER),
-                "lon": openapi.Schema(type=openapi.TYPE_NUMBER),
-            },
             required=["lat", "lon"],
-            example={
-                "lat": 21.7051,
-                "lon": 72.9959
-            }
+            properties={
+                "lat": openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_FLOAT,
+                    example=21.7051,
+                    description="Latitude"
+                ),
+                "lon": openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_FLOAT,
+                    example=72.9959,
+                    description="Longitude"
+                ),
+            },
         ),
-        responses={200: "Location updated"},
+        responses={
+            200: openapi.Response(
+                description="Live location updated successfully",
+                examples={
+                    "application/json": {
+                        "message": "Live location updated successfully",
+                        "live_lat": 21.7051,
+                        "live_long": 72.9959
+                    }
+                }
+            ),
+            400: "Invalid input",
+            403: "Only serviceman allowed"
+        },
         security=[{"Bearer": []}],
         tags=["Serviceman Location"]
     )
@@ -1882,13 +1913,14 @@ class ServicemanLocationUpdateAPI(APIView):
             user=request.user
         )
 
-        profile.current_lat = lat
-        profile.current_long = lon
+        # 🔥 Update LIVE location
+        profile.live_lat = lat
+        profile.live_long = lon
         profile.is_online = True
         profile.save()
 
         return Response({
-            "message": "Location updated successfully",
-            "lat": lat,
-            "lon": lon
+            "message": "Live location updated successfully",
+            "live_lat": lat,
+            "live_long": lon
         })
