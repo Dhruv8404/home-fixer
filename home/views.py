@@ -1772,10 +1772,25 @@ class BookingTrackingAPI(APIView):
 
     def get(self, request, booking_id):
         try:
-            booking = Booking.objects.select_related("serviceman__user","customer__user").get(id=booking_id, customer__user=request.user)
+            booking = Booking.objects.select_related(
+                "serviceman__user",
+                "customer__user"
+            ).get(id=booking_id)
+
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
+        # 🔐 ACCESS CONTROL (CUSTOMER + SERVICEMAN)
+        if request.user.role == "CUSTOMER":
+            if booking.customer.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+
+        elif request.user.role == "SERVICEMAN":
+            if booking.serviceman.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+
+        else:
+            return Response({"error": "Access not allowed"}, status=403)
         if not booking.serviceman:
             return Response({"error": "No serviceman assigned yet"}, status=400)
 
