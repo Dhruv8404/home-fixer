@@ -1,5 +1,6 @@
 import profile
 
+from PIL.Image import item
 import cloudinary
 from rest_framework import permissions
 from rest_framework.views import APIView
@@ -25,7 +26,7 @@ from .serializers import (
     CategorySerializer,
     ServicemanSerializer
 )
-from .utils import send_email_otp, verify_email_otp
+from .utils import calculate_booking_total, send_email_otp, verify_email_otp
 from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
@@ -1186,25 +1187,31 @@ class BookingDetailAPIView(APIView):
 from .models import Service
 from .serializers import ServiceSerializer
 
-
 class ServiceCreateAPI(APIView):
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
+        operation_summary="Serviceman: Create Service",
         request_body=ServiceSerializer,
         responses={201: ServiceSerializer},
+        tags=["Services"],
         security=[{"Bearer": []}],
-        tags=["Services - Admin"]
     )
     def post(self, request):
+
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        serviceman = ServicemanProfile.objects.get(user=request.user)
+
         serializer = ServiceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        serializer.save(serviceman=serviceman)
 
         return Response(serializer.data, status=201)
-
+    
 class ServiceListAPI(APIView):
-    permission_classes = [IsAuthenticated]  # or AllowAny if public
+    permission_classes = [AllowAny]
 
     @swagger_auto_schema(
         operation_summary="Get All Active Services",
@@ -1212,22 +1219,30 @@ class ServiceListAPI(APIView):
         tags=["Services"]
     )
     def get(self, request):
+
         services = Service.objects.filter(is_active=True)
         serializer = ServiceSerializer(services, many=True)
-        return Response(serializer.data)        
-    
+        return Response(serializer.data)    
 
 class ServiceUpdateAPI(APIView):
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
+        operation_summary="Serviceman: Update Service",
         request_body=ServiceSerializer,
         responses={200: ServiceSerializer},
+        tags=["Services"],
         security=[{"Bearer": []}],
-        tags=["Services - Admin"]
     )
-    def put(self, request, pk):
+    def patch(self, request, pk):
+
         service = get_object_or_404(Service, pk=pk)
+
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        if service.serviceman.user != request.user:
+            return Response({"error": "Not your service"}, status=403)
 
         serializer = ServiceSerializer(
             service,
@@ -1238,7 +1253,9 @@ class ServiceUpdateAPI(APIView):
         serializer.save()
 
         return Response(serializer.data)    
-    
+
+
+
 from .permissions import IsAdminRole
 
 class ServiceSoftDeleteAPI(APIView):
@@ -1770,6 +1787,8 @@ def get_status_text(status):
 class BookingTrackingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
+    
+                            
     def get(self, request, booking_id):
         try:
             booking = Booking.objects.select_related(
@@ -1938,4 +1957,295 @@ Update real-time location of serviceman.
             "message": "Live location updated successfully",
             "live_lat": lat,
             "live_long": lon
+        })
+
+
+class ServicemanAddProductsAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+    operation_summary="Serviceman: Add Products to Booking",
+    operation_description="""
+Serviceman adds products (materials) after visiting customer.
+
+Important:
+- Products are NOT added to total until approved by customer
+""",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=["items"],
+        properties={
+            "items": openapi.Schema(
+                type=openapi.TYPE_ARRAY,
+                items=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "product_id": openapi.Schema(
+                            type=openapi.TYPE_INTEGER,
+                            example=1
+                        ),
+                        "quantity": openapi.Schema(
+                            type=openapi.TYPE_INTEGER,
+                            example=2
+                        )
+                    }
+                )
+            )
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Products added",
+            examples={
+                "application/json": {
+                    "message": "Products added successfully",
+                    "note": "Total will update after customer approval"
+                }
+            }
+        ),
+        400: "Invalid request",
+        403: "Not allowed"
+    },
+    tags=["Booking - Serviceman"],
+    security=[{"Bearer": []}],
+)
+
+    def post(self, request, booking_id):
+
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        booking = get_object_or_404(Booking, id=booking_id)
+        serviceman = get_object_or_404(ServicemanProfile, user=request.user)
+
+        if booking.serviceman != serviceman:
+            return Response({"error": "Not your booking"}, status=403)
+
+        if booking.status not in ["ACCEPTED", "ONGOING"]:
+            return Response({"error": "Invalid booking status"}, status=400)
+
+        items = request.data.get("items", [])
+
+        if not items:
+            return Response({"error": "Items required"}, status=400)
+
+        for item in items:
+            product = get_object_or_404(Product, id=item["product_id"])
+            qty = int(item.get("quantity", 1))
+
+            if product.stock_quantity < qty:
+                return Response(
+                    {"error": f"{product.name} out of stock"},
+                    status=400
+                )
+
+            booking_item, created = BookingItem.objects.get_or_create(
+                booking=booking,
+                product=product,
+                defaults={
+                    "quantity": qty,
+                    "price_at_booking": product.price
+                }
+            )
+
+            if not created:
+                booking_item.quantity += qty
+                booking_item.save()
+
+        # ❌ DO NOT UPDATE TOTAL HERE
+
+        return Response({
+            "message": "Products added successfully",
+            "note": "Total will update after customer approval"
+        })
+from .utils import calculate_booking_total
+
+class RemoveBookingItemAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+    operation_summary="Serviceman: Remove Product from Booking",
+    operation_description="""
+Serviceman removes a product from booking.
+
+Rules:
+- Only assigned serviceman allowed
+- Cannot remove approved item
+""",
+    responses={
+        200: openapi.Response(
+            description="Item removed",
+            examples={
+                "application/json": {
+                    "message": "Item removed",
+                    "new_total": 900
+                }
+            }
+        ),
+        403: "Not allowed",
+        400: "Cannot remove approved item"
+    },
+    tags=["Booking - Serviceman"],
+    security=[{"Bearer": []}],
+)
+    def delete(self, request, item_id):
+
+        item = get_object_or_404(BookingItem, id=item_id)
+        booking = item.booking
+
+        if booking.serviceman.user != request.user:
+            return Response({"error": "Not allowed"}, status=403)
+
+        # ❌ prevent removing approved item (optional but recommended)
+        if item.is_approved:
+            return Response({"error": "Cannot remove approved item"}, status=400)
+
+        item.delete()
+
+        # ✅ recalculate total
+        new_total = calculate_booking_total(booking)
+
+        return Response({
+            "message": "Item removed",
+            "new_total": new_total
+        })
+from .utils import calculate_booking_total
+
+class UpdateBookingItemAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+    operation_summary="Serviceman: Update Product Quantity in Booking",
+    operation_description="""
+Serviceman updates quantity of a product in booking.
+
+Rules:
+- Only assigned serviceman allowed
+- Cannot update approved items
+""",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=["quantity"],
+        properties={
+            "quantity": openapi.Schema(
+                type=openapi.TYPE_INTEGER,
+                example=3
+            )
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Quantity updated",
+            examples={
+                "application/json": {
+                    "message": "Updated successfully",
+                    "new_total": 1200
+                }
+            }
+        ),
+        400: "Invalid request",
+        403: "Not allowed"
+    },
+    tags=["Booking - Serviceman"],
+    security=[{"Bearer": []}],
+)
+    def patch(self, request, item_id):
+
+        item = get_object_or_404(BookingItem, id=item_id)
+        booking = item.booking
+
+        if booking.serviceman.user != request.user:
+            return Response({"error": "Not allowed"}, status=403)
+
+        # ❌ prevent editing approved item
+        if item.is_approved:
+            return Response({"error": "Cannot modify approved item"}, status=400)
+
+        new_qty = int(request.data.get("quantity", 1))
+
+        item.quantity = new_qty
+        item.save()
+
+        # ✅ recalculate total
+        new_total = calculate_booking_total(booking)
+
+        return Response({
+            "message": "Updated successfully",
+            "new_total": new_total
+        })
+    
+from .utils import calculate_booking_total
+class CustomerApproveProductAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+    operation_summary="Customer: Approve/Reject Product",
+    operation_description="""
+Customer approves or rejects individual product items.
+
+Rules:
+- Only booking owner allowed
+- Only approved items affect total cost
+""",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=["item_id", "approve"],
+        properties={
+            "item_id": openapi.Schema(
+                type=openapi.TYPE_INTEGER,
+                example=1,
+                description="BookingItem ID"
+            ),
+            "approve": openapi.Schema(
+                type=openapi.TYPE_BOOLEAN,
+                example=True,
+                description="Approve or reject product"
+            )
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Approval updated",
+            examples={
+                "application/json": {
+                    "message": "Product approval updated",
+                    "product": "Pipe",
+                    "approved": True,
+                    "new_total": 1200
+                }
+            }
+        ),
+        400: "Invalid request",
+        403: "Not allowed"
+    },
+    tags=["Booking - Product Approval"],
+    security=[{"Bearer": []}],
+)
+
+    def patch(self, request):
+
+        if request.user.role != "CUSTOMER":
+            return Response({"error": "Only customer allowed"}, status=403)
+
+        item_id = request.data.get("item_id")
+        approve = request.data.get("approve")
+
+        if item_id is None or approve is None:
+            return Response({"error": "item_id and approve required"}, status=400)
+
+        item = get_object_or_404(BookingItem, id=item_id)
+        booking = item.booking
+
+        if booking.customer.user != request.user:
+            return Response({"error": "Not your booking"}, status=403)
+
+        item.is_approved = approve
+        item.save()
+
+        # ✅ update total
+        new_total = calculate_booking_total(booking)
+
+        return Response({
+            "message": "Product approval updated",
+            "product": item.product.name,
+            "approved": item.is_approved,
+            "new_total": new_total
         })

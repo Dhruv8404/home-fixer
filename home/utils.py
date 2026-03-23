@@ -83,3 +83,28 @@ def delete_cloudinary_image(field):
             cloudinary.uploader.destroy(field.public_id)
     except Exception:
         pass
+
+from decimal import Decimal
+
+def calculate_booking_total(booking):
+    """
+    Calculate total cost of booking:
+    = service_charge + platform_fee + ONLY approved products
+    """
+
+    approved_total = Decimal("0.00")
+
+    # ✅ only approved items
+    for item in booking.items.filter(is_approved=True):
+        approved_total += item.quantity * item.price_at_booking
+
+    # ✅ final total
+    booking.total_cost = (
+        booking.service_charge_at_booking +
+        booking.platform_fee +
+        approved_total
+    )
+
+    booking.save()
+
+    return booking.total_cost

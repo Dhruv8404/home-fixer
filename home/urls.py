@@ -161,4 +161,26 @@ path(
 #  LIVE LOCATION UPDATE
 path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),
 
+
+#=====product added to booking by serviceman, update and delete endpoints for booking items, and customer approval endpoint for products added to booking =====
+path(
+    "booking/<int:booking_id>/add-products/",
+    views.ServicemanAddProductsAPI.as_view(),
+    name="serviceman-add-products"
+),
+path(
+    "booking/item/<int:item_id>/update/",
+    views.UpdateBookingItemAPI.as_view(),
+    name="update-booking-item"
+),
+path(
+    "booking/item/<int:item_id>/delete/",
+    views.RemoveBookingItemAPI.as_view(),
+    name="remove-booking-item"
+),
+path(
+    "booking/item/approve/",
+    views.CustomerApproveProductAPI.as_view(),
+    name="customer-approve-product"
+),
 ]

@@ -646,8 +646,7 @@ class BookingTrackingSerializer(serializers.Serializer):
 
 # ================= SERVICE SERIALIZERS =================
 
-from .models import Service, Category
-
+from .models import Service, Category , BookingItem
 
 class ServiceSerializer(serializers.ModelSerializer):
 
@@ -656,34 +655,146 @@ class ServiceSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    serviceman_name = serializers.CharField(
+        source="serviceman.user.name",
+        read_only=True
+    )
+
     class Meta:
         model = Service
         fields = [
             "id",
+            "serviceman",
+            "serviceman_name",
             "category",
             "category_name",
             "name",
+            "price",   # ✅ FIXED
             "description",
-            "base_price",
             "is_active",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 
-    def validate_base_price(self, value):
+    def validate_price(self, value):
         if value <= 0:
-            raise serializers.ValidationError(
-                "Base price must be greater than zero"
-            )
+            raise serializers.ValidationError("Price must be greater than 0")
         return value
 
-    def validate_name(self, value):
-        if len(value.strip()) < 3:
+class BookingItemSerializer(serializers.ModelSerializer):
+
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    is_approved = serializers.BooleanField(read_only=True)
+    class Meta:
+        model = BookingItem
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "quantity",
+            "price_at_booking",
+            "is_approved",
+        ]        
+
+
+
+class BookingCreateSerializer(serializers.ModelSerializer):
+
+    scheduled_time = serializers.CharField()
+    items = serializers.ListField(write_only=True, required=False)
+
+    class Meta:
+        model = Booking
+        fields = [
+            "serviceman",
+            "scheduled_date",
+            "scheduled_time",
+            "problem_title",
+            "problem_description",
+            "items"
+        ]
+
+    def validate_scheduled_time(self, value):
+        try:
+            return datetime.strptime(value, "%I:%M %p").time()
+        except ValueError:
             raise serializers.ValidationError(
-                "Service name must be at least 3 characters"
+                "Use format HH:MM AM/PM (e.g. 10:30 AM)"
             )
-        return value
-    
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        customer = request.user.customerprofile
+
+        items = validated_data.pop("items", [])
+        serviceman = validated_data["serviceman"]
+
+        # ✅ service charge
+        service_charge = serviceman.visiting_charge
+        platform_fee = Decimal("20.00")
+
+        booking = Booking.objects.create(
+            customer=customer,
+            service_charge_at_booking=service_charge,
+            platform_fee=platform_fee,
+            total_cost=service_charge + platform_fee,
+            **validated_data
+        )
+
+        # ✅ ADD PRODUCTS
+        total_material_cost = 0
+
+        for item in items:
+            product = Product.objects.get(id=item["product_id"])
+            qty = item.get("quantity", 1)
+
+            cost = product.price * qty
+            total_material_cost += cost
+
+            BookingItem.objects.create(
+                booking=booking,
+                product=product,
+                quantity=qty,
+                price_at_booking=product.price
+            )
+
+        # ✅ update total
+        booking.total_cost += total_material_cost
+        booking.save()
+
+        return booking
+
+class BookingDetailSerializer(serializers.ModelSerializer):
+
+    serviceman_name = serializers.CharField(
+        source="serviceman.user.name",
+        read_only=True
+    )
+
+    customer_name = serializers.CharField(
+        source="customer.user.name",
+        read_only=True
+    )
+
+    items = BookingItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "status",
+            "scheduled_date",
+            "scheduled_time",
+            "problem_title",
+            "problem_description",
+            "customer_name",
+            "serviceman_name",
+            "service_charge_at_booking",
+            "platform_fee",
+            "total_cost",
+            "items",   # ✅ PRODUCTS HERE
+            "created_at",
+        ]
 
 class LocationUpdateSerializer(serializers.Serializer):
     lat = serializers.FloatField()
