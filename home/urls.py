@@ -3,10 +3,6 @@ from . import views
 from .views import (
     BookingDetailAPIView,
     BookingTrackingAPI,
-    ServiceListAPI,
-    ServiceCreateAPI,
-    ServiceUpdateAPI,
-    ServiceSoftDeleteAPI,
     BookingCreateAPIView,
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
@@ -37,6 +33,11 @@ from .views import (
     AdminServicemanControlAPI,
     ProductCreateAPI,
     ProductUpdateAPI,
+     BookingSummaryAPI,
+        AddBookingItemAPI,
+        ApproveProductsAPI,
+        VendorOrderListAPI
+
 )
 
 
@@ -131,11 +132,6 @@ path(
 ),
 
 # ================= SERVICES =================
-path("services/", views.ServiceListAPI.as_view(), name="service-list"),
-path("services/create/", views.ServiceCreateAPI.as_view(), name="service-create"),
-path("services/<int:pk>/update/", views.ServiceUpdateAPI.as_view(), name="service-update"),
-path("services/<int:pk>/delete/", views.ServiceSoftDeleteAPI.as_view(), name="service-delete"),
-
 
 
 # ================= PRODUCTS =================
@@ -162,25 +158,46 @@ path(
 path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),
 
 
-#=====product added to booking by serviceman, update and delete endpoints for booking items, and customer approval endpoint for products added to booking =====
+
+
+
+# ================= BOOKING PRODUCT FLOW =================
+
 path(
-    "booking/<int:booking_id>/add-products/",
-    views.ServicemanAddProductsAPI.as_view(),
-    name="serviceman-add-products"
+    "booking/<int:booking_id>/service-charge/",
+    views.UpdateServiceChargeAPI.as_view(),
+    name="update-service-charge"
 ),
+
 path(
-    "booking/item/<int:item_id>/update/",
-    views.UpdateBookingItemAPI.as_view(),
-    name="update-booking-item"
+    "products/nearby/",
+    views.NearbyProductAPI.as_view(),
+    name="nearby-products"
 ),
+
 path(
-    "booking/item/<int:item_id>/delete/",
-    views.RemoveBookingItemAPI.as_view(),
-    name="remove-booking-item"
+    "booking/<int:booking_id>/add-product/",
+    views.AddBookingItemAPI.as_view(),
+    name="add-booking-item"
 ),
+
 path(
-    "booking/item/approve/",
-    views.CustomerApproveProductAPI.as_view(),
-    name="customer-approve-product"
+    "booking/<int:booking_id>/summary/",
+    views.BookingSummaryAPI.as_view(),
+    name="booking-summary"
+),
+
+path(
+    "booking/<int:booking_id>/approve/",
+    views.ApproveProductsAPI.as_view(),
+    name="approve-products"
+),
+
+
+
+path(
+    "vendor/orders/",
+    views.VendorOrderListAPI.as_view(),
+    name="vendor-orders"
 ),
 ]

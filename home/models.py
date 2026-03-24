@@ -217,41 +217,18 @@ class Category(models.Model):
 
 
 
+
 class Service(models.Model):
-    serviceman = models.ForeignKey(
-        ServicemanProfile,
-        on_delete=models.CASCADE,
-        related_name="services"
-    )
-
-    category = models.ForeignKey(
-        Category,
-        on_delete=models.CASCADE,
-        limit_choices_to={"category_type": "SERVICE"}
-    )
-
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
-
-    price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
-
+    base_price = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField(blank=True, null=True)
-
     is_active = models.BooleanField(default=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["serviceman"]),
-        ]
-
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
     def __str__(self):
-        return f"{self.name} - {self.serviceman.user.name}"
-    
+        return self.name
 
 class Serviceman(models.Model):
     name = models.CharField(max_length=100)
@@ -318,6 +295,14 @@ class Booking(models.Model):
     def __str__(self):
         return f"Booking #{self.id}"
     
+    def update_total_cost(self):
+        product_total = sum([
+        item.get_total_price()
+        for item in self.items.filter(is_approved=True)
+    ])
+        self.total_cost = self.service_charge_at_booking + product_total
+        self.save()
+    
 class BookingImage(models.Model):
 
     booking = models.ForeignKey(
@@ -338,46 +323,29 @@ class BookingImage(models.Model):
     def __str__(self):
         return f"Image for Booking {self.booking.id}"
 
+
+
+
+
 class Product(models.Model):
     vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE)
-
-    category = models.ForeignKey(
-        Category,
-        on_delete=models.PROTECT,
-        limit_choices_to={"category_type": "PRODUCT"}
-    )
-
+    category = models.ForeignKey(Category, on_delete=models.PROTECT)
     name = models.CharField(max_length=255)
-
     price = models.DecimalField(max_digits=10, decimal_places=2)
-
-    stock_quantity = models.PositiveIntegerField(default=0)
-
-    min_stock_alert = models.PositiveIntegerField(default=5)
-
+    stock_quantity = models.IntegerField(default=0)
+    min_stock_alert = models.IntegerField(default=5)
     image = CloudinaryField(
-        'image',
-        folder='home_fixer/products/',
-        null=True,
-        blank=True
-    )
+    'image',
+    folder='home_fixer/products/',
+    null=True,
+    blank=True
+)
 
     description = models.TextField(blank=True, null=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        indexes = [
-            models.Index(fields=["vendor"]),
-            models.Index(fields=["category"]),
-        ]
-
-    def __str__(self):
-        return self.name
-
 class BookingItem(models.Model):
-
     booking = models.ForeignKey(
         Booking,
         on_delete=models.CASCADE,
@@ -385,31 +353,19 @@ class BookingItem(models.Model):
     )
 
     product = models.ForeignKey(
-    Product,
-    on_delete=models.PROTECT,
-    null=True,   # ✅ ADD THIS TEMP
-    blank=True
-)
+        Product,
+        null=True,  
+        on_delete=models.PROTECT
+    )
 
     quantity = models.PositiveIntegerField(default=1)
+    price_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
 
-    price_at_booking = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
     is_approved = models.BooleanField(default=False)
-    class Meta:
-        unique_together = ("booking", "product")   # 🔥 IMPORTANT
-        indexes = [
-            models.Index(fields=["booking"]),
-        ]
-
-    def __str__(self):
-        return f"{self.product.name} x {self.quantity}"
 
     def get_total_price(self):
         return self.quantity * self.price_at_booking
-    
+
 
 
 class MaterialOrder(models.Model):
