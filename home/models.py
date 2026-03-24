@@ -309,7 +309,7 @@ class Booking(models.Model):
     def update_total_cost(self):
         product_total = sum([
         item.get_total_price()
-        for item in self.items.filter(is_approved=True)
+        for item in self.items.filter(approval_status="APPROVED")
     ])
         self.total_cost = self.service_charge_at_booking + product_total
         self.save()
@@ -372,8 +372,17 @@ class BookingItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     price_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
 
-    is_approved = models.BooleanField(default=False)
+    APPROVAL_CHOICES = [
+    ("PENDING", "Pending"),
+    ("APPROVED", "Approved"),
+    ("REJECTED", "Rejected"),
+]
 
+    approval_status = models.CharField(
+        max_length=20,
+        choices=APPROVAL_CHOICES,
+        default="PENDING"
+        )
     def get_total_price(self):
         return self.quantity * self.price_at_booking
 

@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .views import (
+    AddProductAndServiceChargeAPI,
     BookingDetailAPIView,
     BookingTrackingAPI,
     BookingCreateAPIView,
@@ -18,6 +19,7 @@ from .views import (
     ServicemanBookingActionAPI,
     ServicemanLocationUpdateAPI,
     ServicemanProfileUpdateAPI,
+    UpdateProductAndServiceChargeAPI,
     UserProfileAPI,
     LogoutAPI,
     VendorProfileAPI,
@@ -34,9 +36,9 @@ from .views import (
     ProductCreateAPI,
     ProductUpdateAPI,
      BookingSummaryAPI,
-        AddBookingItemAPI,
         ApproveProductsAPI,
-        VendorOrderListAPI
+        VendorOrderListAPI,
+        AddProductAndServiceChargeAPI
 
 )
 
@@ -163,11 +165,7 @@ path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),
 
 # ================= BOOKING PRODUCT FLOW =================
 
-path(
-    "booking/<int:booking_id>/service-charge/",
-    views.UpdateServiceChargeAPI.as_view(),
-    name="update-service-charge"
-),
+
 
 path(
     "products/nearby/",
@@ -175,11 +173,7 @@ path(
     name="nearby-products"
 ),
 
-path(
-    "booking/<int:booking_id>/add-product/",
-    views.AddBookingItemAPI.as_view(),
-    name="add-booking-item"
-),
+
 
 path(
     "booking/<int:booking_id>/summary/",
@@ -199,5 +193,15 @@ path(
     "vendor/orders/",
     views.VendorOrderListAPI.as_view(),
     name="vendor-orders"
+),
+
+path(
+    "booking/<int:booking_id>/add-product/",
+    views.AddProductAndServiceChargeAPI.as_view(),
+    name="add-product-service-charge"
+),
+path(
+    'booking/<int:booking_id>/update-product-service/',
+    UpdateProductAndServiceChargeAPI.as_view()
 ),
 ]

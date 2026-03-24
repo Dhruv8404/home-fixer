@@ -1873,6 +1873,11 @@ from .utils import distance_km
 # =========================================
 # 🔹 1. NEARBY PRODUCTS API
 # =========================================
+from .models import Product, VendorProfile
+from .serializers import ProductSerializer
+from .utils import distance_km
+
+
 class NearbyProductAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1887,82 +1892,78 @@ class NearbyProductAPI(APIView):
     )
     def get(self, request):
 
+        # =========================
+        # 1. GET LAT / LON
+        # =========================
         lat = request.query_params.get("lat")
         lon = request.query_params.get("lon")
 
         if not lat or not lon:
-            return Response({"error": "lat & lon required"}, status=400)
+            raise ValidationError({"error": "lat & lon required"})
 
-        lat, lon = float(lat), float(lon)
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            raise ValidationError({"error": "Invalid coordinates"})
 
+        # =========================
+        # 2. FILTER VALID VENDORS
+        # =========================
         vendors = VendorProfile.objects.filter(
             is_active=True,
-            is_approved=True
+            is_approved=True,
+            store_lat__isnull=False,
+            store_long__isnull=False
         )
 
         products = []
 
+        # =========================
+        # 3. LOOP VENDORS SAFELY
+        # =========================
         for vendor in vendors:
-            distance = distance_km(
-                lat, lon,
-                float(vendor.store_lat),
-                float(vendor.store_long)
-            )
 
-            if distance <= 10:
+            # extra safety (VERY IMPORTANT)
+            if not vendor.store_lat or not vendor.store_long:
+                continue
+
+            try:
+                distance = distance_km(
+                    lat,
+                    lon,
+                    float(vendor.store_lat),
+                    float(vendor.store_long)
+                )
+            except Exception:
+                continue  # skip invalid vendor
+
+            # =========================
+            # 4. DISTANCE FILTER
+            # =========================
+            if distance <= 10:   # you can increase to 20 for testing
+
                 vendor_products = Product.objects.filter(
                     vendor=vendor,
                     stock_quantity__gt=0
                 )
+
                 products.extend(vendor_products)
 
-        serializer = ProductSerializer(products, many=True)
-        return Response(serializer.data)
+        # =========================
+        # 5. REMOVE DUPLICATES
+        # =========================
+        unique_products = list(set(products))
 
+        # =========================
+        # 6. RESPONSE
+        # =========================
+        serializer = ProductSerializer(unique_products, many=True)
 
-# =========================================
-# 🔹 2. ADD PRODUCT TO BOOKING (SERVICEMAN)
-# =========================================
-class AddBookingItemAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Serviceman adds product to booking",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["product_id", "quantity"],
-            properties={
-                "product_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
-            }
-        ),
-        responses={200: "Product added"},
-        tags=["Booking"]
-    )
-    def post(self, request, booking_id):
-
-        if request.user.role != "SERVICEMAN":
-            return Response({"error": "Only serviceman allowed"}, status=403)
-
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        product = get_object_or_404(Product, id=request.data.get("product_id"))
-        qty = int(request.data.get("quantity", 1))
-
-        item, created = BookingItem.objects.get_or_create(
-            booking=booking,
-            product=product,
-            defaults={
-                "quantity": qty,
-                "price_at_booking": product.price
-            }
-        )
-
-        if not created:
-            item.quantity += qty
-            item.save()
-
-        return Response({"message": "Product added"})
+        return Response({
+            "count": len(unique_products),
+            "products": serializer.data
+        })
 
 
 # =========================================
@@ -1985,6 +1986,7 @@ class BookingSummaryAPI(APIView):
         product_total = sum([
             item.get_total_price()
             for item in items
+            if item.approval_status == "APPROVED"
         ])
 
         total = booking.service_charge_at_booking + product_total
@@ -1997,12 +1999,11 @@ class BookingSummaryAPI(APIView):
                 {
                     "product": item.product.name,
                     "qty": item.quantity,
-                    "approved": item.is_approved
+                    "status": item.approval_status
                 }
                 for item in items
             ]
         })
-
 
 # =========================================
 # 🔹 4. CUSTOMER APPROVES PRODUCTS
@@ -2011,16 +2012,35 @@ class ApproveProductsAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-    operation_summary="Customer approves products → send to vendors",
-    request_body=openapi.Schema(
-        type=openapi.TYPE_OBJECT,
-        properties={}
-    ),
-    responses={200: "Orders created"},
-    tags=["Booking"]
-)
+        operation_summary="Customer Approve / Reject Products",
+        operation_description="""
+Customer can approve or reject all products in booking.
+
+✔ APPROVED → sent to vendor (only once)  
+❌ REJECTED → ignored  
+
+Note: Duplicate orders are prevented.
+""",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["status"],
+            properties={
+                "status": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=["APPROVED", "REJECTED"],
+                    example="APPROVED"
+                )
+            }
+        ),
+        responses={200: "Processed"},
+        security=[{"Bearer": []}],
+        tags=["Booking"]
+    )
     def patch(self, request, booking_id):
 
+        # =========================
+        # 1. CUSTOMER CHECK
+        # =========================
         if request.user.role != "CUSTOMER":
             return Response({"error": "Only customer allowed"}, status=403)
 
@@ -2029,14 +2049,56 @@ class ApproveProductsAPI(APIView):
         if booking.customer.user != request.user:
             return Response({"error": "Not your booking"}, status=403)
 
-        items = booking.items.filter(is_approved=False)
+        # =========================
+        # 2. STATUS INPUT
+        # =========================
+        status_value = request.data.get("status")
+
+        if status_value not in ["APPROVED", "REJECTED"]:
+            return Response({"error": "Invalid status"}, status=400)
+
+        items = booking.items.all()
 
         if not items.exists():
-            return Response({"message": "No items to approve"})
+            return Response({"message": "No items found"})
 
+        # =========================
+        # 3. REJECT FLOW
+        # =========================
+        if status_value == "REJECTED":
+            for item in items:
+                item.is_approved = False
+                item.save()
+
+            booking.update_total_cost()
+
+            return Response({
+                "message": "All items rejected",
+                "orders": []
+            })
+
+        # =========================
+        # 4. PREVENT DUPLICATE ORDER
+        # =========================
+        if MaterialOrder.objects.filter(booking=booking).exists():
+            return Response({
+                "message": "Order already created for this booking"
+            }, status=400)
+
+        # =========================
+        # 5. APPROVE FLOW
+        # =========================
         vendor_map = {}
 
         for item in items:
+
+            # skip already approved items
+            if item.is_approved:
+                continue
+
+            item.is_approved = True
+            item.save()
+
             vendor = item.product.vendor
 
             if vendor not in vendor_map:
@@ -2046,6 +2108,9 @@ class ApproveProductsAPI(APIView):
 
         orders = []
 
+        # =========================
+        # 6. CREATE ORDERS
+        # =========================
         for vendor, items_list in vendor_map.items():
 
             order = MaterialOrder.objects.create(
@@ -2065,9 +2130,6 @@ class ApproveProductsAPI(APIView):
                     price_at_order=item.price_at_booking
                 )
 
-                item.is_approved = True
-                item.save()
-
                 total += item.get_total_price()
 
             order.total_cost = total
@@ -2075,54 +2137,16 @@ class ApproveProductsAPI(APIView):
 
             orders.append(order.id)
 
-        # ✅ FINAL COST UPDATE
+        # =========================
+        # 7. UPDATE TOTAL
+        # =========================
         booking.update_total_cost()
 
         return Response({
-            "message": "Approved & sent to vendors",
-            "orders": orders
+            "message": "Products approved and sent to vendors",
+            "orders": orders,
+            "total_cost": booking.total_cost
         })
-
-
-class UpdateServiceChargeAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-    operation_summary="Serviceman updates service charge at booking",
-    request_body=openapi.Schema(
-        type=openapi.TYPE_OBJECT,
-        required=["service_charge"],
-        properties={
-            "service_charge": openapi.Schema(
-                type=openapi.TYPE_NUMBER,
-                example=200
-            )
-        }
-    ),
-    responses={200: "Service charge updated"},
-    tags=["Booking"]
-)
-
-    def patch(self, request, booking_id):
-
-        if request.user.role != "SERVICEMAN":
-            return Response({"error": "Only serviceman allowed"}, status=403)
-
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        if booking.serviceman.user != request.user:
-            return Response({"error": "Not your booking"}, status=403)
-
-        service_charge = request.data.get("service_charge")
-
-        if not service_charge:
-            return Response({"error": "service_charge required"}, status=400)
-
-        booking.service_charge_at_booking = service_charge
-        booking.status = "ONGOING"
-        booking.save()
-
-        return Response({"message": "Service charge updated"})        
 
 
 
@@ -2172,3 +2196,257 @@ class VendorOrderListAPI(APIView):
             })
 
         return Response(data)        
+
+
+# =========================================
+# 🔹 MERGED API → ADD PRODUCT + SERVICE CHARGE
+# =========================================
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+from .models import Booking, BookingItem, Product, ServicemanProfile
+
+
+class AddProductAndServiceChargeAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Serviceman adds product + updates service charge",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["product_id", "quantity", "service_charge"],
+            properties={
+                "product_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                "service_charge": openapi.Schema(type=openapi.TYPE_NUMBER, example=200)
+            }
+        ),
+        responses={200: "Product added + service charge updated"},
+        tags=["Booking"]
+    )
+    def post(self, request, booking_id):
+
+
+        # =========================
+        # 1. ROLE CHECK
+        # =========================
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        serviceman = get_object_or_404(
+            ServicemanProfile,
+            user=request.user
+        )
+
+        # =========================
+        # 2. ONLY HIS BOOKING ❗
+        # =========================
+        booking = get_object_or_404(
+            Booking,
+            id=booking_id,
+            serviceman=serviceman
+        )
+
+        # =========================
+        # 3. STATUS CHECK
+        # =========================
+        if booking.status not in ["ACCEPTED", "ONGOING"]:
+            return Response({
+                "error": "Booking not active"
+            }, status=400)
+
+        # =========================
+        # 4. GET DATA
+        # =========================
+        product_id = request.data.get("product_id")
+        quantity = int(request.data.get("quantity", 1))
+        service_charge = request.data.get("service_charge")
+
+        if not product_id:
+            return Response({"error": "product_id required"}, status=400)
+
+        if service_charge is None:
+            return Response({"error": "service_charge required"}, status=400)
+
+        product = get_object_or_404(Product, id=product_id)
+
+        # =========================
+        # 5. ADD PRODUCT (ANY PRODUCT ALLOWED)
+        # =========================
+        item, created = BookingItem.objects.get_or_create(
+            booking=booking,
+            product=product,
+            defaults={
+                "quantity": quantity,
+                "price_at_booking": product.price
+            }
+        )
+
+        if not created:
+            item.quantity += quantity
+            item.save()
+
+        # =========================
+        # 6. UPDATE SERVICE CHARGE
+        # =========================
+        booking.service_charge_at_booking = service_charge
+        booking.status = "ONGOING"
+        booking.save()
+
+        # =========================
+        # 7. RESPONSE
+        # =========================
+        return Response({
+            "message": "Product added in your booking only",
+            "booking_id": booking.id,
+            "product": product.name,
+            "quantity": item.quantity,
+            "service_charge": booking.service_charge_at_booking,
+            "status": booking.status
+        })
+    
+class UpdateProductAndServiceChargeAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Serviceman updates product quantity + service charge (ONLY HIS BOOKING)",
+        operation_description="""
+✔ Update:
+- Product quantity
+- Service charge
+
+❌ Restrictions:
+- Only assigned serviceman
+- Only his booking
+- Booking must be ACCEPTED or ONGOING
+""",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["product_id"],
+            properties={
+                "product_id": openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=5
+                ),
+                "quantity": openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=3,
+                    description="New quantity (0 = remove product)"
+                ),
+                "service_charge": openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    example=250
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Updated successfully",
+                examples={
+                    "application/json": {
+                        "message": "Booking updated successfully",
+                        "booking_id": 12,
+                        "product": "Pipe",
+                        "quantity": 3,
+                        "service_charge": 250,
+                        "status": "ONGOING"
+                    }
+                }
+            ),
+            400: "Bad request",
+            403: "Forbidden",
+            404: "Not found"
+        },
+        security=[{"Bearer": []}],
+        tags=["Booking"]
+    )
+    def patch(self, request, booking_id):
+
+        # =========================
+        # 1. ROLE CHECK
+        # =========================
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        # =========================
+        # 2. GET SERVICEMAN
+        # =========================
+        serviceman = get_object_or_404(
+            ServicemanProfile,
+            user=request.user
+        )
+
+        # =========================
+        # 3. ONLY HIS BOOKING
+        # =========================
+        booking = get_object_or_404(
+            Booking,
+            id=booking_id,
+            serviceman=serviceman
+        )
+
+        # =========================
+        # 4. STATUS CHECK
+        # =========================
+        if booking.status not in ["ACCEPTED", "ONGOING"]:
+            return Response({
+                "error": "Booking not editable"
+            }, status=400)
+
+        # =========================
+        # 5. GET DATA
+        # =========================
+        product_id = request.data.get("product_id")
+        quantity = request.data.get("quantity")
+        service_charge = request.data.get("service_charge")
+
+        if not product_id:
+            return Response({"error": "product_id required"}, status=400)
+
+        product = get_object_or_404(Product, id=product_id)
+
+        item = get_object_or_404(
+            BookingItem,
+            booking=booking,
+            product=product
+        )
+
+        # =========================
+        # 6. UPDATE PRODUCT
+        # =========================
+        if quantity is not None:
+            quantity = int(quantity)
+
+            if quantity <= 0:
+                item.delete()
+            else:
+                item.quantity = quantity
+                item.save()
+
+        # =========================
+        # 7. UPDATE SERVICE CHARGE
+        # =========================
+        if service_charge is not None:
+            booking.service_charge_at_booking = service_charge
+
+        booking.save()
+
+        # =========================
+        # 8. RESPONSE
+        # =========================
+        return Response({
+            "message": "Booking updated successfully",
+            "booking_id": booking.id,
+            "product": product.name,
+            "quantity": quantity,
+            "service_charge": booking.service_charge_at_booking,
+            "status": booking.status
+        })        
+
+
+        
