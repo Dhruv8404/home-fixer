@@ -1973,7 +1973,7 @@ class BookingSummaryAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Get booking total (service + products)",
+        operation_summary="Get booking total (service + approved products)",
         responses={200: openapi.Response("Booking Summary")},
         tags=["Booking"]
     )
@@ -1983,6 +1983,7 @@ class BookingSummaryAPI(APIView):
 
         items = booking.items.all()
 
+        # ✅ Only APPROVED items count
         product_total = sum([
             item.get_total_price()
             for item in items
@@ -1992,19 +1993,28 @@ class BookingSummaryAPI(APIView):
         total = booking.service_charge_at_booking + product_total
 
         return Response({
+            "booking_id": booking.id,
             "service_charge": booking.service_charge_at_booking,
             "product_total": product_total,
-            "total": total,
+            "total_amount": total,
+
             "items": [
                 {
-                    "product": item.product.name,
-                    "qty": item.quantity,
+                    "product_id": item.product.id if item.product else None,
+
+                    # ✅ SAFE SNAPSHOT (VERY IMPORTANT)
+                    "product_name": item.product_name,
+                    "product_image": item.product_image,
+                    "product_price": item.product_price,
+
+                    "quantity": item.quantity,
+                    "total_price": item.get_total_price(),
+
                     "status": item.approval_status
                 }
                 for item in items
             ]
         })
-
 # =========================================
 # 🔹 4. CUSTOMER APPROVES PRODUCTS
 # =========================================
@@ -2038,9 +2048,7 @@ Note: Duplicate orders are prevented.
     )
     def patch(self, request, booking_id):
 
-        # =========================
         # 1. CUSTOMER CHECK
-        # =========================
         if request.user.role != "CUSTOMER":
             return Response({"error": "Only customer allowed"}, status=403)
 
@@ -2049,9 +2057,7 @@ Note: Duplicate orders are prevented.
         if booking.customer.user != request.user:
             return Response({"error": "Not your booking"}, status=403)
 
-        # =========================
         # 2. STATUS INPUT
-        # =========================
         status_value = request.data.get("status")
 
         if status_value not in ["APPROVED", "REJECTED"]:
@@ -2063,11 +2069,11 @@ Note: Duplicate orders are prevented.
             return Response({"message": "No items found"})
 
         # =========================
-        # 3. REJECT FLOW
+        # ❌ REJECT ALL
         # =========================
         if status_value == "REJECTED":
             for item in items:
-                item.is_approved = False
+                item.approval_status = "REJECTED"
                 item.save()
 
             booking.update_total_cost()
@@ -2078,25 +2084,24 @@ Note: Duplicate orders are prevented.
             })
 
         # =========================
-        # 4. PREVENT DUPLICATE ORDER
+        # ❌ PREVENT DUPLICATE ORDER
         # =========================
         if MaterialOrder.objects.filter(booking=booking).exists():
             return Response({
-                "message": "Order already created for this booking"
+                "message": "Order already created"
             }, status=400)
 
-        # =========================
-        # 5. APPROVE FLOW
-        # =========================
         vendor_map = {}
 
+        # =========================
+        # ✅ APPROVE FLOW
+        # =========================
         for item in items:
 
-            # skip already approved items
-            if item.is_approved:
+            if item.approval_status == "APPROVED":
                 continue
 
-            item.is_approved = True
+            item.approval_status = "APPROVED"
             item.save()
 
             vendor = item.product.vendor
@@ -2109,7 +2114,7 @@ Note: Duplicate orders are prevented.
         orders = []
 
         # =========================
-        # 6. CREATE ORDERS
+        # CREATE ORDERS
         # =========================
         for vendor, items_list in vendor_map.items():
 
@@ -2127,7 +2132,7 @@ Note: Duplicate orders are prevented.
                     order=order,
                     product=item.product,
                     quantity=item.quantity,
-                    price_at_order=item.price_at_booking
+                    price_at_order=item.product_price   # ✅ FIXED
                 )
 
                 total += item.get_total_price()
@@ -2137,17 +2142,13 @@ Note: Duplicate orders are prevented.
 
             orders.append(order.id)
 
-        # =========================
-        # 7. UPDATE TOTAL
-        # =========================
         booking.update_total_cost()
 
         return Response({
-            "message": "Products approved and sent to vendors",
+            "message": "Products approved & sent to vendors",
             "orders": orders,
             "total_cost": booking.total_cost
         })
-
 
 
 class VendorOrderListAPI(APIView):

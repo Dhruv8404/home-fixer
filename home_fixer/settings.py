@@ -147,7 +147,7 @@ if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
             DATABASE_URL,
-            conn_max_age=600,
+            conn_max_age=0,
         )
     }
 else:
@@ -159,8 +159,13 @@ else:
             "PASSWORD": os.getenv("DB_PASSWORD", "newpassword"),
             "HOST": os.getenv("DB_HOST", "127.0.0.1"),
             "PORT": os.getenv("DB_PORT", "5432"),
-        }
+         'OPTIONS': {
+            'sslmode': 'require',
+        },
+
+        'CONN_MAX_AGE': 0,
     }
+}
 
 
 # Password validation
