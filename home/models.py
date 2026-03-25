@@ -363,29 +363,37 @@ class BookingItem(models.Model):
         related_name="items"
     )
 
+    # 🔹 Reference (optional but useful)
     product = models.ForeignKey(
         Product,
-        null=True,  
-        on_delete=models.PROTECT
+        null=True,
+        on_delete=models.SET_NULL
     )
 
+    # 🔥 JSON STORAGE (FULL SNAPSHOT)
+    product_data = models.JSONField(default=dict)
+
     quantity = models.PositiveIntegerField(default=1)
-    price_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # 🔥 Snapshot fields (FAST ACCESS)
+    product_name = models.CharField(max_length=255)
+    product_price = models.DecimalField(max_digits=10, decimal_places=2)
+    product_image = models.URLField(null=True, blank=True)
 
     APPROVAL_CHOICES = [
-    ("PENDING", "Pending"),
-    ("APPROVED", "Approved"),
-    ("REJECTED", "Rejected"),
-]
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+    ]
 
     approval_status = models.CharField(
         max_length=20,
         choices=APPROVAL_CHOICES,
         default="PENDING"
-        )
-    def get_total_price(self):
-        return self.quantity * self.price_at_booking
+    )
 
+    def get_total_price(self):
+        return self.quantity * self.product_price
 
 
 class MaterialOrder(models.Model):

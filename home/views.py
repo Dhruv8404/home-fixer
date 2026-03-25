@@ -2282,15 +2282,26 @@ class AddProductAndServiceChargeAPI(APIView):
             booking=booking,
             product=product,
             defaults={
-                "quantity": quantity,
-                "price_at_booking": product.price
+            "quantity": quantity,
+
+            # 🔥 SNAPSHOT
+            "product_name": product.name,
+            "product_price": product.price,
+            "product_image": product.image.url if product.image else None,
+
+        # 🔥 JSON DATA
+            "product_data": {
+            "id": product.id,
+            "name": product.name,
+            "price": str(product.price),
+            "image": product.image.url if product.image else None,
+            }
             }
         )
 
         if not created:
             item.quantity += quantity
             item.save()
-
         # =========================
         # 6. UPDATE SERVICE CHARGE
         # =========================
