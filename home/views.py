@@ -1983,7 +1983,6 @@ class BookingSummaryAPI(APIView):
 
         items = booking.items.all()
 
-        # ✅ Only APPROVED items count
         product_total = sum([
             item.get_total_price()
             for item in items
@@ -2000,21 +1999,19 @@ class BookingSummaryAPI(APIView):
 
             "items": [
                 {
-                    "product_id": item.product.id if item.product else None,
-
-                    # ✅ SAFE SNAPSHOT (VERY IMPORTANT)
+                    "item_id": item.id,
                     "product_name": item.product_name,
-                    "product_image": item.product_image,
                     "product_price": item.product_price,
-
+                    "product_image": item.product_image,
                     "quantity": item.quantity,
                     "total_price": item.get_total_price(),
-
-                    "status": item.approval_status
+                    "status": item.approval_status   # ✅ shows PENDING
                 }
                 for item in items
             ]
         })
+    
+
 # =========================================
 # 🔹 4. CUSTOMER APPROVES PRODUCTS
 # =========================================
@@ -2022,33 +2019,40 @@ class ApproveProductsAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Customer Approve / Reject Products",
-        operation_description="""
-Customer can approve or reject all products in booking.
-
-✔ APPROVED → sent to vendor (only once)  
-❌ REJECTED → ignored  
-
-Note: Duplicate orders are prevented.
-""",
+        operation_summary="Customer Approve/Reject Individual Products",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["status"],
+            required=["items"],
             properties={
-                "status": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=["APPROVED", "REJECTED"],
-                    example="APPROVED"
+                "items": openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "item_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                            "status": openapi.Schema(
+                                type=openapi.TYPE_STRING,
+                                enum=["APPROVED", "REJECTED"]
+                            )
+                        }
+                    )
                 )
+            },
+            example={
+                "items": [
+                    {"item_id": 1, "status": "APPROVED"},
+                    {"item_id": 2, "status": "REJECTED"}
+                ]
             }
         ),
         responses={200: "Processed"},
-        security=[{"Bearer": []}],
         tags=["Booking"]
     )
     def patch(self, request, booking_id):
 
-        # 1. CUSTOMER CHECK
+        # =========================
+        # 1. ROLE CHECK
+        # =========================
         if request.user.role != "CUSTOMER":
             return Response({"error": "Only customer allowed"}, status=403)
 
@@ -2057,53 +2061,57 @@ Note: Duplicate orders are prevented.
         if booking.customer.user != request.user:
             return Response({"error": "Not your booking"}, status=403)
 
-        # 2. STATUS INPUT
-        status_value = request.data.get("status")
+        items_data = request.data.get("items", [])
 
-        if status_value not in ["APPROVED", "REJECTED"]:
-            return Response({"error": "Invalid status"}, status=400)
-
-        items = booking.items.all()
-
-        if not items.exists():
-            return Response({"message": "No items found"})
+        if not items_data:
+            return Response({"error": "Items required"}, status=400)
 
         # =========================
-        # ❌ REJECT ALL
+        # 2. CHECK PENDING EXISTS
         # =========================
-        if status_value == "REJECTED":
-            for item in items:
-                item.approval_status = "REJECTED"
-                item.save()
+        if not booking.items.filter(approval_status="PENDING").exists():
+            return Response({"message": "No pending items"}, status=400)
 
-            booking.update_total_cost()
-
-            return Response({
-                "message": "All items rejected",
-                "orders": []
-            })
+        approved_items = []
 
         # =========================
-        # ❌ PREVENT DUPLICATE ORDER
+        # 3. UPDATE ITEMS
         # =========================
-        if MaterialOrder.objects.filter(booking=booking).exists():
-            return Response({
-                "message": "Order already created"
-            }, status=400)
+        for data in items_data:
 
-        vendor_map = {}
+            item = get_object_or_404(
+                BookingItem,
+                id=data.get("item_id"),
+                booking=booking
+            )
 
-        # =========================
-        # ✅ APPROVE FLOW
-        # =========================
-        for item in items:
-
-            if item.approval_status == "APPROVED":
+            # 🔥 ONLY PENDING CAN CHANGE
+            if item.approval_status != "PENDING":
                 continue
 
-            item.approval_status = "APPROVED"
+            status_value = data.get("status")
+
+            if status_value not in ["APPROVED", "REJECTED"]:
+                return Response({"error": "Invalid status"}, status=400)
+
+            item.approval_status = status_value
             item.save()
 
+            if status_value == "APPROVED":
+                approved_items.append(item)
+
+        # =========================
+        # 4. PREVENT DUPLICATE ORDER
+        # =========================
+        if MaterialOrder.objects.filter(booking=booking).exists():
+            return Response({"message": "Order already created"}, status=400)
+
+        # =========================
+        # 5. GROUP BY VENDOR
+        # =========================
+        vendor_map = {}
+
+        for item in approved_items:
             vendor = item.product.vendor
 
             if vendor not in vendor_map:
@@ -2114,7 +2122,7 @@ Note: Duplicate orders are prevented.
         orders = []
 
         # =========================
-        # CREATE ORDERS
+        # 6. CREATE ORDERS
         # =========================
         for vendor, items_list in vendor_map.items():
 
@@ -2132,7 +2140,7 @@ Note: Duplicate orders are prevented.
                     order=order,
                     product=item.product,
                     quantity=item.quantity,
-                    price_at_order=item.product_price   # ✅ FIXED
+                    price_at_order=item.product_price
                 )
 
                 total += item.get_total_price()
@@ -2142,15 +2150,18 @@ Note: Duplicate orders are prevented.
 
             orders.append(order.id)
 
+        # =========================
+        # 7. UPDATE TOTAL
+        # =========================
         booking.update_total_cost()
 
         return Response({
-            "message": "Products approved & sent to vendors",
-            "orders": orders,
+            "message": "Items processed successfully",
+            "orders_created": orders,
             "total_cost": booking.total_cost
         })
-
-
+    
+    
 class VendorOrderListAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2230,12 +2241,9 @@ class AddProductAndServiceChargeAPI(APIView):
         responses={200: "Product added + service charge updated"},
         tags=["Booking"]
     )
+
     def post(self, request, booking_id):
 
-
-        # =========================
-        # 1. ROLE CHECK
-        # =========================
         if request.user.role != "SERVICEMAN":
             return Response({"error": "Only serviceman allowed"}, status=403)
 
@@ -2244,26 +2252,15 @@ class AddProductAndServiceChargeAPI(APIView):
             user=request.user
         )
 
-        # =========================
-        # 2. ONLY HIS BOOKING ❗
-        # =========================
         booking = get_object_or_404(
             Booking,
             id=booking_id,
             serviceman=serviceman
         )
 
-        # =========================
-        # 3. STATUS CHECK
-        # =========================
         if booking.status not in ["ACCEPTED", "ONGOING"]:
-            return Response({
-                "error": "Booking not active"
-            }, status=400)
+            return Response({"error": "Booking not active"}, status=400)
 
-        # =========================
-        # 4. GET DATA
-        # =========================
         product_id = request.data.get("product_id")
         quantity = int(request.data.get("quantity", 1))
         service_charge = request.data.get("service_charge")
@@ -2276,52 +2273,48 @@ class AddProductAndServiceChargeAPI(APIView):
 
         product = get_object_or_404(Product, id=product_id)
 
-        # =========================
-        # 5. ADD PRODUCT (ANY PRODUCT ALLOWED)
-        # =========================
+        # ✅ ADD / UPDATE PRODUCT
         item, created = BookingItem.objects.get_or_create(
             booking=booking,
             product=product,
             defaults={
-            "quantity": quantity,
+                "quantity": quantity,
+                "product_name": product.name,
+                "product_price": product.price,
+                "product_image": product.image.url if product.image else None,
 
-            # 🔥 SNAPSHOT
-            "product_name": product.name,
-            "product_price": product.price,
-            "product_image": product.image.url if product.image else None,
+                # 🔥 IMPORTANT
+                "approval_status": "PENDING",
 
-        # 🔥 JSON DATA
-            "product_data": {
-            "id": product.id,
-            "name": product.name,
-            "price": str(product.price),
-            "image": product.image.url if product.image else None,
-            }
+                "product_data": {
+                    "id": product.id,
+                    "name": product.name,
+                    "price": str(product.price),
+                    "image": product.image.url if product.image else None,
+                }
             }
         )
 
         if not created:
             item.quantity += quantity
+
+            # 🔥 RESET TO PENDING
+            item.approval_status = "PENDING"
+
             item.save()
-        # =========================
-        # 6. UPDATE SERVICE CHARGE
-        # =========================
+
         booking.service_charge_at_booking = service_charge
         booking.status = "ONGOING"
         booking.save()
 
-        # =========================
-        # 7. RESPONSE
-        # =========================
         return Response({
-            "message": "Product added in your booking only",
-            "booking_id": booking.id,
+            "message": "Product added successfully",
             "product": product.name,
             "quantity": item.quantity,
-            "service_charge": booking.service_charge_at_booking,
-            "status": booking.status
+            "status": item.approval_status
         })
-    
+
+
 class UpdateProductAndServiceChargeAPI(APIView):
     permission_classes = [IsAuthenticated]
 
