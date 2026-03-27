@@ -2019,30 +2019,18 @@ class ApproveProductsAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Customer Approve/Reject Individual Products",
+        operation_summary="Customer Approve/Reject ALL Products",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["items"],
+            required=["status"],
             properties={
-                "items": openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(
-                        type=openapi.TYPE_OBJECT,
-                        properties={
-                            "item_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                            "status": openapi.Schema(
-                                type=openapi.TYPE_STRING,
-                                enum=["APPROVED", "REJECTED"]
-                            )
-                        }
-                    )
+                "status": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=["APPROVED", "REJECTED"]
                 )
             },
             example={
-                "items": [
-                    {"item_id": 1, "status": "APPROVED"},
-                    {"item_id": 2, "status": "REJECTED"}
-                ]
+                "status": "APPROVED"
             }
         ),
         responses={200: "Processed"},
@@ -2061,39 +2049,25 @@ class ApproveProductsAPI(APIView):
         if booking.customer.user != request.user:
             return Response({"error": "Not your booking"}, status=403)
 
-        items_data = request.data.get("items", [])
+        status_value = request.data.get("status")
 
-        if not items_data:
-            return Response({"error": "Items required"}, status=400)
+        if status_value not in ["APPROVED", "REJECTED"]:
+            return Response({"error": "Invalid status"}, status=400)
 
         # =========================
-        # 2. CHECK PENDING EXISTS
+        # 2. GET ALL PENDING ITEMS
         # =========================
-        if not booking.items.filter(approval_status="PENDING").exists():
+        items = booking.items.filter(approval_status="PENDING")
+
+        if not items.exists():
             return Response({"message": "No pending items"}, status=400)
 
         approved_items = []
 
         # =========================
-        # 3. UPDATE ITEMS
+        # 3. UPDATE ALL ITEMS
         # =========================
-        for data in items_data:
-
-            item = get_object_or_404(
-                BookingItem,
-                id=data.get("item_id"),
-                booking=booking
-            )
-
-            # 🔥 ONLY PENDING CAN CHANGE
-            if item.approval_status != "PENDING":
-                continue
-
-            status_value = data.get("status")
-
-            if status_value not in ["APPROVED", "REJECTED"]:
-                return Response({"error": "Invalid status"}, status=400)
-
+        for item in items:
             item.approval_status = status_value
             item.save()
 
@@ -2101,13 +2075,23 @@ class ApproveProductsAPI(APIView):
                 approved_items.append(item)
 
         # =========================
-        # 4. PREVENT DUPLICATE ORDER
+        # 4. IF REJECT → STOP HERE
+        # =========================
+        if status_value == "REJECTED":
+            booking.update_total_cost()
+            return Response({
+                "message": "All items rejected",
+                "total_cost": booking.total_cost
+            })
+
+        # =========================
+        # 5. PREVENT DUPLICATE ORDER
         # =========================
         if MaterialOrder.objects.filter(booking=booking).exists():
             return Response({"message": "Order already created"}, status=400)
 
         # =========================
-        # 5. GROUP BY VENDOR
+        # 6. GROUP BY VENDOR
         # =========================
         vendor_map = {}
 
@@ -2122,7 +2106,7 @@ class ApproveProductsAPI(APIView):
         orders = []
 
         # =========================
-        # 6. CREATE ORDERS
+        # 7. CREATE ORDERS
         # =========================
         for vendor, items_list in vendor_map.items():
 
@@ -2142,7 +2126,6 @@ class ApproveProductsAPI(APIView):
                     quantity=item.quantity,
                     price_at_order=item.product_price
                 )
-
                 total += item.get_total_price()
 
             order.total_cost = total
@@ -2151,16 +2134,15 @@ class ApproveProductsAPI(APIView):
             orders.append(order.id)
 
         # =========================
-        # 7. UPDATE TOTAL
+        # 8. UPDATE BOOKING TOTAL
         # =========================
         booking.update_total_cost()
 
         return Response({
-            "message": "Items processed successfully",
+            "message": "All items approved successfully",
             "orders_created": orders,
             "total_cost": booking.total_cost
-        })
-    
+        })    
     
 class VendorOrderListAPI(APIView):
     permission_classes = [IsAuthenticated]

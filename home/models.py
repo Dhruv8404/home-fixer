@@ -395,19 +395,86 @@ class BookingItem(models.Model):
     def get_total_price(self):
         return self.quantity * self.product_price
 
-
 class MaterialOrder(models.Model):
-    STATUS_CHOICES = [('REQUESTED','Requested'),('APPROVED','Approved'),('REJECTED','Rejected'),('FULFILLED','Fulfilled')]
-    URGENCY_CHOICES = [('HIGH','High'),('MEDIUM','Medium'),('LOW','Low')]
 
-    booking = models.ForeignKey(Booking, null=True, blank=True, on_delete=models.SET_NULL)
-    serviceman = models.ForeignKey(ServicemanProfile, on_delete=models.CASCADE)
-    vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='REQUESTED')
-    urgency = models.CharField(max_length=10, choices=URGENCY_CHOICES, default='MEDIUM')
-    total_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    STATUS_CHOICES = [
+        ('REQUESTED', 'Requested'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+        ('FULFILLED', 'Fulfilled')
+    ]
+
+    URGENCY_CHOICES = [
+        ('HIGH', 'High'),
+        ('MEDIUM', 'Medium'),
+        ('LOW', 'Low')
+    ]
+
+    # =========================
+    # RELATIONS
+    # =========================
+    booking = models.ForeignKey(
+        Booking,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="material_orders"
+    )
+
+    serviceman = models.ForeignKey(
+        ServicemanProfile,
+        on_delete=models.CASCADE,
+        related_name="material_orders"
+    )
+
+    vendor = models.ForeignKey(
+        VendorProfile,
+        on_delete=models.CASCADE,
+        related_name="material_orders"
+    )
+
+    # =========================
+    # ORDER STATUS
+    # =========================
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='REQUESTED'
+    )
+
+    urgency = models.CharField(
+        max_length=10,
+        choices=URGENCY_CHOICES,
+        default='MEDIUM'
+    )
+
+    # =========================
+    # CUSTOMER APPROVAL (🔥 IMPORTANT)
+    # =========================
+    customer_approve = models.BooleanField(
+        default=False
+    )
+
+    # =========================
+    # COST
+    # =========================
+    total_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # =========================
+    # TIMESTAMPS
+    # =========================
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # =========================
+    # STRING
+    # =========================
+    def __str__(self):
+        return f"Order #{self.id} | Booking {self.booking_id} | Vendor {self.vendor_id}"
 
 
 
