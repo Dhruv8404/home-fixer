@@ -2029,9 +2029,7 @@ class ApproveProductsAPI(APIView):
                     enum=["APPROVED", "REJECTED"]
                 )
             },
-            example={
-                "status": "APPROVED"
-            }
+            example={"status": "APPROVED"}
         ),
         responses={200: "Processed"},
         tags=["Booking"]
@@ -2055,7 +2053,7 @@ class ApproveProductsAPI(APIView):
             return Response({"error": "Invalid status"}, status=400)
 
         # =========================
-        # 2. GET ALL PENDING ITEMS
+        # 2. GET PENDING ITEMS
         # =========================
         items = booking.items.filter(approval_status="PENDING")
 
@@ -2065,7 +2063,7 @@ class ApproveProductsAPI(APIView):
         approved_items = []
 
         # =========================
-        # 3. UPDATE ALL ITEMS
+        # 3. UPDATE ITEMS
         # =========================
         for item in items:
             item.approval_status = status_value
@@ -2075,7 +2073,7 @@ class ApproveProductsAPI(APIView):
                 approved_items.append(item)
 
         # =========================
-        # 4. IF REJECT → STOP HERE
+        # 4. REJECT CASE
         # =========================
         if status_value == "REJECTED":
             booking.update_total_cost()
@@ -2106,7 +2104,7 @@ class ApproveProductsAPI(APIView):
         orders = []
 
         # =========================
-        # 7. CREATE ORDERS
+        # 7. CREATE ORDERS (🔥 FIXED)
         # =========================
         for vendor, items_list in vendor_map.items():
 
@@ -2114,7 +2112,8 @@ class ApproveProductsAPI(APIView):
                 booking=booking,
                 serviceman=booking.serviceman,
                 vendor=vendor,
-                status="REQUESTED"
+                status="REQUESTED",
+                customer_approve=True   # ✅ CRITICAL FIX
             )
 
             total = 0
@@ -2142,13 +2141,14 @@ class ApproveProductsAPI(APIView):
             "message": "All items approved successfully",
             "orders_created": orders,
             "total_cost": booking.total_cost
-        })    
-    
+        })  
+
+
 class VendorOrderListAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Vendor: View all incoming product orders",
+        operation_summary="Vendor: View ONLY approved product orders",
         responses={200: "Vendor Orders"},
         tags=["Vendor Orders"]
     )
@@ -2159,38 +2159,50 @@ class VendorOrderListAPI(APIView):
 
         vendor = get_object_or_404(VendorProfile, user=request.user)
 
-        orders = MaterialOrder.objects.filter(
-            vendor=vendor
+        # ✅ ONLY APPROVED ORDERS
+        orders = MaterialOrder.objects.select_related(
+            "booking",
+            "serviceman__user"
+        ).filter(
+            vendor=vendor,
+            customer_approve=True
         ).order_by("-id")
 
-        data = []
+        response = []
 
         for order in orders:
-            items = MaterialOrderItem.objects.filter(order=order)
+            items = MaterialOrderItem.objects.select_related("product").filter(order=order)
 
-            data.append({
+            response.append({
                 "order_id": order.id,
-                "booking_id": order.booking.id,
+                "booking_id": order.booking.id if order.booking else None,
                 "status": order.status,
                 "total_cost": order.total_cost,
+                "created_at": order.created_at,
 
                 "serviceman": {
+                    "id": order.serviceman.user.id,
                     "name": order.serviceman.user.name,
                     "phone": order.serviceman.user.phone
                 },
 
                 "items": [
                     {
-                        "product": item.product.name,
+                        "product_id": item.product.id,
+                        "product_name": item.product.name,
                         "quantity": item.quantity,
-                        "price": item.price_at_order
+                        "price": item.price_at_order,
+                        "total": item.quantity * item.price_at_order
                     }
                     for item in items
                 ]
             })
 
-        return Response(data)        
-
+        return Response({
+            "count": len(response),
+            "orders": response
+        })
+    
 
 # =========================================
 # 🔹 MERGED API → ADD PRODUCT + SERVICE CHARGE
