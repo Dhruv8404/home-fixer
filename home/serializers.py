@@ -3,7 +3,7 @@ from decimal import Decimal
 import cloudinary.uploader
 from .utils import delete_cloudinary_image
 from rest_framework import serializers
-from .models import   User , CustomerProfile, ServicemanProfile, VendorProfile
+from .models import   Payment, User , CustomerProfile, ServicemanProfile, VendorProfile
 import re
 from django.contrib.auth import authenticate
 
@@ -524,32 +524,27 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         customer_profile = request.user.customerprofile
         serviceman = validated_data["serviceman"]
 
-        images = validated_data.pop("images", [])
-
-        # ⭐ DEFINE PRICE
+        # 🔥 PRICE CALCULATION
         service_charge = serviceman.visiting_charge
         platform_fee = Decimal("20.00")
         total_cost = service_charge + platform_fee
 
-        uploaded_urls = []
-
-        if images:
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                uploaded_urls = list(
-                    executor.map(self.upload_to_cloudinary, images)
-                )
-
+        # 🔥 CREATE BOOKING WITH PAYMENT FIRST
         booking = Booking.objects.create(
             customer=customer_profile,
-            image_urls=uploaded_urls if uploaded_urls else [],
             service_charge_at_booking=service_charge,
             platform_fee=platform_fee,
             total_cost=total_cost,
+
+            # 🔥 CRITICAL PART
+            status="PENDING_PAYMENT",
+            payment_status="PENDING",
+
             **validated_data
         )
 
         return booking
-
+    
 class BookingDetailSerializer(serializers.ModelSerializer):
 
     serviceman_name = serializers.CharField(
@@ -689,3 +684,43 @@ class ServiceSerializer(serializers.ModelSerializer):
 class LocationUpdateSerializer(serializers.Serializer):
     lat = serializers.FloatField()
     lon = serializers.FloatField()    
+
+
+
+# ================= PAYMENT SERIALIZERS =================
+class PaymentCreateOrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "booking",
+            "amount",
+            "status",
+            "gateway_order_id",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PaymentVerifySerializer(serializers.Serializer):
+    gateway_order_id = serializers.CharField()
+    gateway_payment_id = serializers.CharField()
+    gateway_signature = serializers.CharField()
+
+
+class PaymentDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "amount",
+            "method",
+            "status",
+            "gateway_order_id",
+            "gateway_payment_id",
+            "created_at",
+            "paid_at",
+        ]
+
+class VerifyStripePaymentSerializer(serializers.Serializer):
+    payment_intent_id = serializers.CharField()

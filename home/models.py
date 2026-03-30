@@ -249,10 +249,10 @@ class ServicemanOffering(models.Model):
 
 
 
-
 class Booking(models.Model):
 
     STATUS_CHOICES = [
+        ('PENDING_PAYMENT', 'Pending Payment'),
         ('PENDING', 'Pending'),
         ('ACCEPTED', 'Accepted'),
         ('REJECTED', 'Rejected'),
@@ -261,12 +261,19 @@ class Booking(models.Model):
         ('CANCELLED', 'Cancelled'),
     ]
 
+    PAYMENT_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PAID', 'Paid'),
+        ('FAILED', 'Failed'),
+    ]
+
     customer = models.ForeignKey(
         CustomerProfile,
         on_delete=models.CASCADE,
         null=True,
         blank=True
     )
+
     serviceman = models.ForeignKey(
         ServicemanProfile, 
         on_delete=models.CASCADE,
@@ -274,46 +281,44 @@ class Booking(models.Model):
         blank=True
     )
 
-    # 👇 NEW FIELDS (Booking Form)
     scheduled_date = models.DateField()
     scheduled_time = models.TimeField()
     problem_title = models.CharField(max_length=255)
     problem_description = models.TextField()
     image_urls = models.JSONField(default=list, blank=True)
 
-     # ⭐ PRICE SNAPSHOT (NEW)
     service_charge_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
     total_cost = models.DecimalField(max_digits=10, decimal_places=2)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    # 🔥 STATUS
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING_PAYMENT'
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-        # ✅ ADD THIS ABOVE payment_status
-    PAYMENT_STATUS_CHOICES = [
-        ('PENDING', 'Pending'),
-        ('PAID', 'Paid'),
-        ('FAILED', 'Failed'),
-    ]
-
+    # 🔥 PAYMENT STATUS
     payment_status = models.CharField(
         max_length=20,
         choices=PAYMENT_STATUS_CHOICES,
         default='PENDING'
     )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     def __str__(self):
         return f"Booking #{self.id}"
-    
+
     def update_total_cost(self):
         product_total = sum([
-        item.get_total_price()
-        for item in self.items.filter(approval_status="APPROVED")
-    ])
+            item.get_total_price()
+            for item in self.items.filter(approval_status="APPROVED")
+        ])
         self.total_cost = self.service_charge_at_booking + product_total
         self.save()
-    
+
 class BookingImage(models.Model):
 
     booking = models.ForeignKey(
@@ -391,7 +396,7 @@ class BookingItem(models.Model):
         choices=APPROVAL_CHOICES,
         default="PENDING"
     )
-
+    is_ordered = models.BooleanField(default=False)
     def get_total_price(self):
         return self.quantity * self.product_price
 
@@ -512,3 +517,45 @@ class Review(models.Model):
     rating = models.PositiveSmallIntegerField()
     comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+
+#===========================PAYMENT MODEL STARTS HERE===========================#
+class Payment(models.Model):
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("PAID", "Paid"),
+        ("FAILED", "Failed"),
+        ("REFUNDED", "Refunded"),
+    ]
+
+    METHOD_CHOICES = [
+        ("UPI", "UPI"),
+        ("CARD", "Card"),
+        ("NETBANKING", "Net Banking"),
+        ("WALLET", "Wallet"),
+    ]
+
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="payments"
+    )
+    customer = models.ForeignKey(
+        CustomerProfile,
+        on_delete=models.CASCADE
+    )
+
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    method = models.CharField(max_length=20, choices=METHOD_CHOICES, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+
+    gateway_order_id = models.CharField(max_length=255, null=True, blank=True)
+    gateway_payment_id = models.CharField(max_length=255, null=True, blank=True)
+    gateway_signature = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Payment #{self.id} for Booking #{self.booking.id}"

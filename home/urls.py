@@ -7,6 +7,7 @@ from .views import (
     BookingCreateAPIView,
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
+    CreatePaymentIntentAPI,
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
@@ -38,7 +39,8 @@ from .views import (
      BookingSummaryAPI,
         ApproveProductsAPI,
         VendorOrderListAPI,
-        AddProductAndServiceChargeAPI
+        AddProductAndServiceChargeAPI,
+    VerifyStripePaymentAPI
 
 )
 
@@ -204,4 +206,18 @@ path(
     'booking/<int:booking_id>/update-product-service/',
     UpdateProductAndServiceChargeAPI.as_view()
 ),
+
+
+#Payment Integration (Simulated)
+path(
+    "booking/<int:booking_id>/payment/",
+    views.BookingPaymentDetailAPI.as_view(),
+    name="booking-payment-detail"
+),
+path("booking/<int:booking_id>/payment/create-intent/", CreatePaymentIntentAPI.as_view()),
+path("booking/<int:booking_id>/payment/verify/", VerifyStripePaymentAPI.as_view()),
+
+
+
+
 ]

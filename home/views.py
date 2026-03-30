@@ -1,14 +1,17 @@
 import profile
-
+from django.conf import settings
+from django.utils import timezone
+from rest_framework.views import APIView
+from django.conf import settings
+import stripe
 import cloudinary
 from rest_framework import permissions
-from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from .models import Booking, BookingItem, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
+from .models import Booking, BookingItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
     BookingCreateSerializer,
     SendOTPSerializer,
@@ -23,7 +26,8 @@ from .serializers import (
     ProfileResponseSerializer,
     UniversalProfileUpdateSerializer,
     CategorySerializer,
-    ServicemanSerializer
+    ServicemanSerializer,
+    VerifyStripePaymentSerializer
 )
 from .utils import send_email_otp, verify_email_otp
 from rest_framework import request, status
@@ -42,6 +46,7 @@ def get_tokens(user):
 from .serializers import EmailPasswordLoginSerializer
 from django.contrib.auth import authenticate
 
+stripe.api_key = settings.STRIPE_SECRET_KEY
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []  # No authentication required for email/password login
@@ -1085,7 +1090,17 @@ class BookingCreateAPIView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     @swagger_auto_schema(
-        operation_summary="Create booking with images",
+        operation_summary="Create Booking (Payment Required)",
+        operation_description="""
+Create booking → Payment required before activation.
+
+Flow:
+1. Booking created → PENDING_PAYMENT
+2. Customer pays
+3. Booking becomes ACTIVE
+""",
+        request_body=BookingCreateSerializer,
+        consumes=["multipart/form-data"],
         manual_parameters=[
             openapi.Parameter(
                 name="images",
@@ -1093,52 +1108,63 @@ class BookingCreateAPIView(APIView):
                 type=openapi.TYPE_FILE,
                 description="Upload multiple images",
                 required=False,
-            ),
+            )
         ],
-        request_body=BookingCreateSerializer,
-        consumes=["multipart/form-data"],
-        tags=["Bookings"],
+        responses={
+            201: openapi.Response(
+                description="Booking created",
+                examples={
+                    "application/json": {
+                        "message": "Booking created. Please complete payment",
+                        "booking_id": 1,
+                        "booking_status": "PENDING_PAYMENT",
+                        "payment_status": "PENDING",
+                        "amount": 500
+                    }
+                }
+            )
+        },
         security=[{"Bearer": []}],
+        tags=["Booking"]
     )
-
     def post(self, request):
+
         serializer = BookingCreateSerializer(
             data=request.data,
             context={"request": request}
         )
+        serializer.is_valid(raise_exception=True)
 
-        if serializer.is_valid(raise_exception=True):
-            booking = serializer.save()
+        booking = serializer.save()
 
-            # 🔥 Handle images here
-            files = request.FILES.getlist("images")
-            image_urls = []
+        # 🔥 FORCE PAYMENT FIRST
+        booking.status = "PENDING_PAYMENT"
+        booking.payment_status = "PENDING"
+        booking.save()
 
-            for file in files:
-                result = cloudinary.uploader.upload(
-                    file,
-                    folder=f"home_fixer/bookings/{booking.id}/"
-                )
-                image_urls.append(result.get("secure_url"))
+        # IMAGE UPLOAD
+        files = request.FILES.getlist("images")
+        image_urls = []
 
-            booking.image_urls = (booking.image_urls or []) + image_urls
-            booking.save()
-
-            return Response(
-                {
-                    "message": "Booking created successfully",
-                    "id": booking.id,
-                    "price_breakdown": {
-                    "visiting_charge": booking.serviceman.visiting_charge,
-                    "platform_fee": round(booking.serviceman.visiting_charge * Decimal("0.10"), 2),
-                    "total_cost": booking.serviceman.visiting_charge + round(booking.serviceman.visiting_charge * Decimal("0.10"), 2)
-                    },
-                    "image_urls": booking.image_urls,
-                },
-                status=status.HTTP_201_CREATED
+        for file in files:
+            result = cloudinary.uploader.upload(
+                file,
+                folder=f"home_fixer/bookings/{booking.id}/"
             )
+            image_urls.append(result.get("secure_url"))
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        booking.image_urls = (booking.image_urls or []) + image_urls
+        booking.save()
+
+        return Response({
+            "message": "Booking created. Please complete payment",
+            "booking_id": booking.id,
+            "booking_status": booking.status,
+            "payment_status": booking.payment_status,
+            "amount": booking.total_cost,
+            "image_urls": booking.image_urls
+        }, status=201)
+
 
 class BookingDetailAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1189,74 +1215,45 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from .models import Booking, ServicemanProfile
 
-
 class ServicemanBookingActionAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Serviceman: Accept or Reject Booking",
-        operation_description="""Serviceman can accept or reject a booking assigned to them.
-        - Accepting sets status to ACCEPTED
-        - Rejecting sets status to CANCELLED                
-        Only the assigned serviceman can perform
-        this action.""",
+        operation_summary="Serviceman Accept / Reject Booking",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 "action": openapi.Schema(
                     type=openapi.TYPE_STRING,
-                    description="Action to perform: accept or reject"
+                    enum=["accept", "reject"]
                 )
-            },
-            example={
-                "action": "accept"
             }
         ),
-        responses={
-            200: openapi.Response(
-                description="Booking status updated successfully",
-                examples={
-                    "application/json": {
-                        "message": "Booking accepted successfully",
-                        "status": "ACCEPTED"
-                    }
-                }
-            ),
-            400: "Invalid action",
-            403: "Only assigned serviceman can perform this action",
-            404: "Booking not found"
-        },
+        responses={200: "Success"},
         security=[{"Bearer": []}],
-        tags=["Booking - Serviceman Actions"]
+        tags=["Booking"]
     )
-
     def patch(self, request, booking_id):
 
         if request.user.role != "SERVICEMAN":
-            return Response(
-            {"detail": "Only serviceman can perform this action"},
-            status=403
-        )
+            return Response({"error": "Only serviceman"}, status=403)
 
         booking = get_object_or_404(Booking, pk=booking_id)
 
         serviceman = get_object_or_404(
-        ServicemanProfile,
-        user=request.user
+            ServicemanProfile,
+            user=request.user
         )
 
         if booking.serviceman != serviceman:
-            return Response(
-            {"detail": "You are not assigned to this booking"},
-            status=403
-        )
+            return Response({"error": "Not assigned"}, status=403)
 
-    # ⭐ Only PENDING bookings can be acted on
+        # 🔥 PAYMENT CHECK
+        if booking.payment_status != "PAID":
+            return Response({"error": "Payment not completed"}, status=400)
+
         if booking.status != "PENDING":
-            return Response(
-            {"detail": "This booking cannot be modified anymore"},
-            status=400
-        )
+            return Response({"error": "Invalid booking state"}, status=400)
 
         action = request.data.get("action")
 
@@ -1267,17 +1264,16 @@ class ServicemanBookingActionAPI(APIView):
             booking.status = "CANCELLED"
 
         else:
-            return Response(
-            {"detail": "Invalid action. Use accept or reject"},
-            status=400
-        )
+            return Response({"error": "Invalid action"}, status=400)
 
         booking.save()
 
         return Response({
             "message": f"Booking {action}ed successfully",
             "status": booking.status
-    })
+        })
+
+
 class CustomerCancelBookingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1624,41 +1620,101 @@ class ServicemanBookingRequestsAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Get bookings assigned to logged-in serviceman",
-        responses={200: BookingDetailSerializer(many=True)},
+        operation_summary="Serviceman: View ONLY PAID bookings",
+        operation_description="""
+🔒 Serviceman can only see bookings AFTER payment.
+
+✔ Only bookings where:
+- payment_status = PAID
+- assigned to logged-in serviceman
+
+❌ Hidden:
+- PENDING_PAYMENT
+- FAILED
+""",
+        responses={
+            200: openapi.Response(
+                description="List of paid bookings",
+                examples={
+                    "application/json": {
+                        "count": 2,
+                        "bookings": [
+                            {
+                                "id": 65,
+                                "status": "PENDING",
+                                "payment_status": "PAID",
+                                "customer_name": "John Doe",
+                                "problem_title": "AC not working"
+                            }
+                        ]
+                    }
+                }
+            ),
+            403: "Only serviceman allowed"
+        },
         security=[{"Bearer": []}],
         tags=["Serviceman Bookings"]
     )
-
     def get(self, request):
 
-        # Only serviceman allowed
+        # =========================
+        # 1. ROLE CHECK
+        # =========================
         if request.user.role != "SERVICEMAN":
             return Response(
                 {"error": "Only serviceman can access this"},
                 status=403
             )
 
-        try:
-            serviceman = ServicemanProfile.objects.get(user=request.user)
-        except ServicemanProfile.DoesNotExist:
-            return Response(
-                {"error": "Serviceman profile not found"},
-                status=404
-            )
+        # =========================
+        # 2. GET SERVICEMAN PROFILE
+        # =========================
+        serviceman = get_object_or_404(
+            ServicemanProfile,
+            user=request.user
+        )
 
-        # ⭐ ONLY BOOKINGS ASSIGNED TO THIS SERVICEMAN
+        # =========================
+        # 3. FILTER BOOKINGS (🔥 FIX)
+        # =========================
         bookings = Booking.objects.select_related(
             "customer__user",
             "serviceman__user"
         ).filter(
-            serviceman=serviceman
+            serviceman=serviceman,
+            payment_status="PAID"   # 🔥 ONLY PAID BOOKINGS
         ).order_by("-created_at")
-        serializer = BookingDetailSerializer(bookings, many=True)
 
-        return Response(serializer.data)
-    
+        # =========================
+        # 4. SERIALIZE RESPONSE
+        # =========================
+        response_data = []
 
+        for booking in bookings:
+            response_data.append({
+                "booking_id": booking.id,
+                "status": booking.status,
+                "payment_status": booking.payment_status,
+                "scheduled_date": booking.scheduled_date,
+                "scheduled_time": booking.scheduled_time,
+                "problem_title": booking.problem_title,
+                "problem_description": booking.problem_description,
+                "total_cost": booking.total_cost,
+                "created_at": booking.created_at,
+
+                "customer": {
+                    "name": booking.customer.user.name,
+                    "phone": booking.customer.user.phone,
+                }
+            })
+
+        # =========================
+        # 5. RESPONSE
+        # =========================
+        return Response({
+            "count": len(response_data),
+            "bookings": response_data
+        })
 
 
 #=============Booking Tracking API =============#
@@ -1682,17 +1738,56 @@ def get_status_text(status):
 class BookingTrackingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="Track Booking (Only After Serviceman Accepts)",
+        operation_description="""
+🚫 Tracking NOT allowed until serviceman accepts booking.
+
+✔ Allowed:
+- ACCEPTED
+- ONGOING
+- COMPLETED
+
+❌ Blocked:
+- PENDING (not accepted yet)
+- PENDING_PAYMENT
+""",
+        responses={
+            200: openapi.Response(
+                description="Tracking data",
+                examples={
+                    "application/json": {
+                        "booking_id": 65,
+                        "status": "ONGOING",
+                        "status_text": "Service is currently in progress",
+                        "serviceman_name": "John",
+                        "distance_km": 2.5,
+                        "eta_minutes": 5
+                    }
+                }
+            ),
+            400: "Tracking not available",
+            403: "Unauthorized"
+        },
+        security=[{"Bearer": []}],
+        tags=["Booking Tracking"]
+    )
     def get(self, request, booking_id):
+
+        # =========================
+        # 1. GET BOOKING
+        # =========================
         try:
             booking = Booking.objects.select_related(
                 "serviceman__user",
                 "customer__user"
             ).get(id=booking_id)
-
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
-        # 🔐 ACCESS CONTROL (CUSTOMER + SERVICEMAN)
+        # =========================
+        # 2. ACCESS CONTROL
+        # =========================
         if request.user.role == "CUSTOMER":
             if booking.customer.user != request.user:
                 return Response({"error": "Unauthorized"}, status=403)
@@ -1703,6 +1798,26 @@ class BookingTrackingAPI(APIView):
 
         else:
             return Response({"error": "Access not allowed"}, status=403)
+
+        # =========================
+        # 🔥 3. PAYMENT CHECK
+        # =========================
+        if booking.payment_status != "PAID":
+            return Response({
+                "error": "Tracking not available until payment completed"
+            }, status=400)
+
+        # =========================
+        # 🔥 4. ACCEPT CHECK (IMPORTANT FIX)
+        # =========================
+        if booking.status == "PENDING":
+            return Response({
+                "error": "Tracking not available until serviceman accepts booking"
+            }, status=400)
+
+        # =========================
+        # 5. SERVICEMAN CHECK
+        # =========================
         if not booking.serviceman:
             return Response({"error": "No serviceman assigned yet"}, status=400)
 
@@ -1710,10 +1825,13 @@ class BookingTrackingAPI(APIView):
 
         if not (serviceman.live_lat or serviceman.current_lat):
             return Response({"error": "Serviceman location not available"}, status=400)
-        
-        if not booking.customer.default_lat or not booking.customer.default_long:
-            return Response({"error": "Customer location not available in booking"}, status=400)
 
+        if not booking.customer.default_lat or not booking.customer.default_long:
+            return Response({"error": "Customer location not available"}, status=400)
+
+        # =========================
+        # 6. CALCULATE DISTANCE
+        # =========================
         serviceman_lat = float(serviceman.live_lat or serviceman.current_lat)
         serviceman_long = float(serviceman.live_long or serviceman.current_long)
 
@@ -1724,16 +1842,20 @@ class BookingTrackingAPI(APIView):
             serviceman_long
         )
 
-        # ⭐ Detect serviceman arrival (within 100 meters)
+        # =========================
+        # 7. AUTO ONGOING (ARRIVAL)
+        # =========================
         if dist_km < 0.1 and booking.status == "ACCEPTED":
             booking.status = "ONGOING"
-            booking.save()    
-
+            booking.save()
 
         eta_minutes = round((dist_km / 30) * 60)
         if eta_minutes < 1:
             eta_minutes = 1
 
+        # =========================
+        # 8. RESPONSE
+        # =========================
         data = {
             "booking_id": booking.id,
             "status": booking.status,
@@ -1743,9 +1865,10 @@ class BookingTrackingAPI(APIView):
             "serviceman_lat": serviceman.live_lat or serviceman.current_lat,
             "serviceman_long": serviceman.live_long or serviceman.current_long,
             "customer_name": booking.customer.user.name,
-            "customer_image": 
-                    booking.customer.profile_image.url
-                    if booking.customer.profile_image else None,
+            "customer_image": (
+                booking.customer.profile_image.url
+                if booking.customer.profile_image else None
+            ),
             "customer_lat": booking.customer.default_lat,
             "customer_long": booking.customer.default_long,
             "customer_address": booking.customer.default_address or "",
@@ -1756,6 +1879,7 @@ class BookingTrackingAPI(APIView):
 
         serializer = BookingTrackingSerializer(data=data)
         serializer.is_valid(raise_exception=True)
+
         return Response(serializer.data)
     
 
@@ -2019,25 +2143,58 @@ class ApproveProductsAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Customer Approve/Reject ALL Products",
+        operation_summary="Customer Approve / Reject Products (Multi-stage)",
+        operation_description="""
+Customer approves or rejects pending products in a booking.
+
+🔥 FEATURES:
+✔ Supports multi-stage approval  
+✔ Only NEW approved items are sent to vendor  
+✔ Prevents duplicate orders  
+✔ Groups products by vendor  
+
+FLOW:
+1. Serviceman adds products → PENDING  
+2. Customer approves → order created  
+3. Serviceman adds more → again PENDING  
+4. Customer approves → ONLY new items processed  
+
+STATUS:
+✔ APPROVED → sent to vendor  
+❌ REJECTED → ignored  
+""",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=["status"],
             properties={
                 "status": openapi.Schema(
                     type=openapi.TYPE_STRING,
-                    enum=["APPROVED", "REJECTED"]
+                    enum=["APPROVED", "REJECTED"],
+                    example="APPROVED"
                 )
-            },
-            example={"status": "APPROVED"}
+            }
         ),
-        responses={200: "Processed"},
-        tags=["Booking"]
+        responses={
+            200: openapi.Response(
+                description="Products processed successfully",
+                examples={
+                    "application/json": {
+                        "message": "New items approved and sent to vendor",
+                        "orders_created": [12, 13],
+                        "total_cost": 1500
+                    }
+                }
+            ),
+            400: "Invalid request / No pending items",
+            403: "Only customer allowed"
+        },
+        security=[{"Bearer": []}],
+        tags=["Booking - Product Approval"]
     )
     def patch(self, request, booking_id):
 
         # =========================
-        # 1. ROLE CHECK
+        # 1. CHECK CUSTOMER
         # =========================
         if request.user.role != "CUSTOMER":
             return Response({"error": "Only customer allowed"}, status=403)
@@ -2060,8 +2217,6 @@ class ApproveProductsAPI(APIView):
         if not items.exists():
             return Response({"message": "No pending items"}, status=400)
 
-        approved_items = []
-
         # =========================
         # 3. UPDATE ITEMS
         # =========================
@@ -2069,24 +2224,23 @@ class ApproveProductsAPI(APIView):
             item.approval_status = status_value
             item.save()
 
-            if status_value == "APPROVED":
-                approved_items.append(item)
-
         # =========================
-        # 4. REJECT CASE
+        # 4. IF REJECTED
         # =========================
         if status_value == "REJECTED":
             booking.update_total_cost()
-            return Response({
-                "message": "All items rejected",
-                "total_cost": booking.total_cost
-            })
+            return Response({"message": "Items rejected"})
 
         # =========================
-        # 5. PREVENT DUPLICATE ORDER
+        # 5. ONLY NEW APPROVED ITEMS
         # =========================
-        if MaterialOrder.objects.filter(booking=booking).exists():
-            return Response({"message": "Order already created"}, status=400)
+        approved_items = booking.items.filter(
+            approval_status="APPROVED",
+            is_ordered=False
+        )
+
+        if not approved_items.exists():
+            return Response({"message": "No new items to order"})
 
         # =========================
         # 6. GROUP BY VENDOR
@@ -2104,7 +2258,7 @@ class ApproveProductsAPI(APIView):
         orders = []
 
         # =========================
-        # 7. CREATE ORDERS (🔥 FIXED)
+        # 7. CREATE ORDERS
         # =========================
         for vendor, items_list in vendor_map.items():
 
@@ -2113,36 +2267,39 @@ class ApproveProductsAPI(APIView):
                 serviceman=booking.serviceman,
                 vendor=vendor,
                 status="REQUESTED",
-                customer_approve=True   # ✅ CRITICAL FIX
+                customer_approve=True
             )
 
             total = 0
 
             for item in items_list:
+
                 MaterialOrderItem.objects.create(
                     order=order,
                     product=item.product,
                     quantity=item.quantity,
                     price_at_order=item.product_price
                 )
+
                 total += item.get_total_price()
+
+                # 🔥 IMPORTANT
+                item.is_ordered = True
+                item.save()
 
             order.total_cost = total
             order.save()
 
             orders.append(order.id)
 
-        # =========================
-        # 8. UPDATE BOOKING TOTAL
-        # =========================
         booking.update_total_cost()
 
         return Response({
-            "message": "All items approved successfully",
+            "message": "New items approved and sent to vendor",
             "orders_created": orders,
             "total_cost": booking.total_cost
-        })  
-
+        })
+        
 
 class VendorOrderListAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -2448,4 +2605,229 @@ class UpdateProductAndServiceChargeAPI(APIView):
         })        
 
 
-        
+
+
+class CreatePaymentIntentAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Create Payment Intent",
+        operation_description="Create Stripe payment for booking",
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request, booking_id):
+
+        # =========================
+        # 1. ROLE CHECK
+        # =========================
+        if request.user.role != "CUSTOMER":
+            return Response({"error": "Only customer can pay"}, status=403)
+
+        # =========================
+        # 2. GET BOOKING
+        # =========================
+        booking = get_object_or_404(Booking, id=booking_id)
+
+        if booking.customer.user != request.user:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        # =========================
+        # 3. VALIDATION
+        # =========================
+        if booking.status != "PENDING_PAYMENT":
+            return Response({"error": "Invalid booking state"}, status=400)
+
+        if booking.payment_status == "PAID":
+            return Response({"error": "Booking already paid"}, status=400)
+
+        if booking.total_cost <= 0:
+            return Response({"error": "Invalid booking amount"}, status=400)
+
+        # =========================
+        # 4. STRIPE AMOUNT
+        # =========================
+        amount = int(booking.total_cost * 100)  # INR → paise
+
+        try:
+            intent = stripe.PaymentIntent.create(
+                amount=amount,
+                currency="inr",
+                metadata={
+                    "booking_id": str(booking.id),
+                    "customer_id": str(request.user.id)
+                }
+            )
+        except Exception as e:
+            return Response({
+                "error": "Stripe error",
+                "details": str(e)
+            }, status=500)
+
+        # =========================
+        # 5. SAVE PAYMENT RECORD
+        # =========================
+        Payment.objects.create(
+            booking=booking,
+            customer=booking.customer,
+            amount=booking.total_cost,
+            status="PENDING",
+            gateway_order_id=intent.id
+        )
+
+        # =========================
+        # 6. RESPONSE
+        # =========================
+        return Response({
+            "client_secret": intent.client_secret,
+            "payment_intent_id": intent.id,
+            "amount": amount,
+            "currency": "INR",
+            "public_key": settings.STRIPE_PUBLIC_KEY
+        })
+
+
+class VerifyStripePaymentAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Verify Stripe Payment (Swagger Test Mode)",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["payment_intent_id"],
+            properties={
+                "payment_intent_id": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example="pi_3Nxxxxxxx"
+                ),
+                "force_success": openapi.Schema(
+                    type=openapi.TYPE_BOOLEAN,
+                    example=True,
+                    description="FOR TESTING ONLY (Swagger)"
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Payment success",
+                examples={
+                    "application/json": {
+                        "message": "Payment successful",
+                        "booking_id": 65,
+                        "booking_status": "PENDING",
+                        "payment_status": "PAID"
+                    }
+                }
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request, booking_id):
+
+        payment_intent_id = request.data.get("payment_intent_id")
+        force_success = request.data.get("force_success", False)
+
+        if not payment_intent_id:
+            return Response({"error": "payment_intent_id required"}, status=400)
+
+        booking = get_object_or_404(Booking, id=booking_id)
+
+        if booking.customer.user != request.user:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        # 🔥 FIXED QUERY (NO status filter)
+        payment = Payment.objects.filter(
+            booking=booking,
+            gateway_order_id=payment_intent_id
+        ).first()
+
+        if not payment:
+            return Response({"error": "Payment not found"}, status=404)
+
+        # =========================
+        # 🔥 SWAGGER FORCE MODE
+        # =========================
+        if force_success:
+
+            payment.status = "PAID"
+            payment.gateway_payment_id = payment_intent_id
+            payment.paid_at = timezone.now()
+            payment.save()
+
+            booking.payment_status = "PAID"
+            booking.status = "PENDING"
+            booking.save()
+
+            return Response({
+                "message": "Payment successful (TEST MODE)",
+                "booking_id": booking.id,
+                "booking_status": booking.status,
+                "payment_status": booking.payment_status
+            })
+
+        # =========================
+        # REAL STRIPE VERIFY
+        # =========================
+        try:
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+        except Exception as e:
+            return Response({
+                "error": "Stripe error",
+                "details": str(e)
+            }, status=500)
+
+        if intent.status == "succeeded":
+
+            payment.status = "PAID"
+            payment.gateway_payment_id = payment_intent_id
+            payment.paid_at = timezone.now()
+            payment.save()
+
+            booking.payment_status = "PAID"
+            booking.status = "PENDING"
+            booking.save()
+
+            return Response({
+                "message": "Payment successful",
+                "booking_id": booking.id,
+                "booking_status": booking.status,
+                "payment_status": booking.payment_status
+            })
+
+        return Response({
+            "error": "Payment not completed",
+            "stripe_status": intent.status
+        }, status=400)        
+
+class BookingPaymentDetailAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+        operation_summary="Get booking payment details",
+        responses={
+            200: openapi.Response(
+                description="Booking Payment Details",
+                examples={
+                    "application/json": {
+                        "booking_id": 12,
+                        "payment_status": "PAID"
+                    }
+                }
+            ),
+            404: "Booking not found"
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def get(self, request, booking_id):
+        try:
+            booking = Booking.objects.get(id=booking_id)
+            return Response({
+                "booking_id": booking.id,
+                "payment_status": booking.payment_status,
+            }, status=200)
+        except Booking.DoesNotExist:
+
+            return Response({"detail": "Booking not found"}, status=404)
+
+
