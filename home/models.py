@@ -409,11 +409,6 @@ class MaterialOrder(models.Model):
         ('FULFILLED', 'Fulfilled')
     ]
 
-    URGENCY_CHOICES = [
-        ('HIGH', 'High'),
-        ('MEDIUM', 'Medium'),
-        ('LOW', 'Low')
-    ]
 
     # =========================
     # RELATIONS
@@ -431,7 +426,7 @@ class MaterialOrder(models.Model):
         on_delete=models.CASCADE,
         related_name="material_orders"
     )
-
+    is_collected = models.BooleanField(default=False)
     vendor = models.ForeignKey(
         VendorProfile,
         on_delete=models.CASCADE,
@@ -447,11 +442,7 @@ class MaterialOrder(models.Model):
         default='REQUESTED'
     )
 
-    urgency = models.CharField(
-        max_length=10,
-        choices=URGENCY_CHOICES,
-        default='MEDIUM'
-    )
+
 
     # =========================
     # CUSTOMER APPROVAL (🔥 IMPORTANT)

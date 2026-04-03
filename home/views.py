@@ -2831,3 +2831,232 @@ class BookingPaymentDetailAPI(APIView):
             return Response({"detail": "Booking not found"}, status=404)
 
 
+
+
+
+class VendorTrackingAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Step-by-Step Vendor Tracking",
+        operation_description="""
+🔥 FLOW:
+
+1. Customer approves all products
+2. Vendors accept orders
+3. Tracking starts
+
+✔ Behavior:
+- Shows ONLY NEXT nearest vendor
+- After collection → next vendor shown
+- AUTO_REJECTED → ignored
+- PENDING → blocks tracking
+
+📍 Result:
+- Step-by-step vendor pickup
+""",
+        manual_parameters=[
+            openapi.Parameter(
+                'booking_id',
+                openapi.IN_PATH,
+                description="Booking ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Next Vendor",
+                examples={
+                    "application/json": {
+                        "booking_id": 101,
+                        "status": "COLLECTION_IN_PROGRESS",
+                        "next_vendor": {
+                            "order_id": 12,
+                            "vendor_id": 5,
+                            "vendor_name": "ABC Hardware",
+                            "distance_km": 1.2
+                        }
+                    }
+                }
+            ),
+            400: "Tracking not allowed",
+            403: "Unauthorized"
+        },
+        security=[{"Bearer": []}],
+        tags=["Vendor Tracking"]
+    )
+    def get(self, request, booking_id):
+
+        # =========================
+        # 🔹 GET BOOKING
+        # =========================
+        booking = get_object_or_404(
+            Booking.objects.select_related(
+                "customer__user",
+                "serviceman__user"
+            ),
+            id=booking_id
+        )
+
+        # =========================
+        # 🔒 ACCESS CONTROL
+        # =========================
+        if request.user.role == "CUSTOMER":
+            if booking.customer.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+
+        elif request.user.role == "SERVICEMAN":
+            if booking.serviceman.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+
+        else:
+            return Response({"error": "Access not allowed"}, status=403)
+
+        # =========================
+        # 🔹 PRODUCT APPROVAL CHECK
+        # =========================
+        items = booking.items.all()
+
+        if items.filter(approval_status="PENDING").exists():
+            return Response({
+                "error": "All products must be approved first"
+            }, status=400)
+
+        # =========================
+        # 🔹 GET ORDERS
+        # =========================
+        orders = booking.material_orders.all()
+
+        if not orders.exists():
+            return Response({
+                "error": "No vendor orders found"
+            }, status=400)
+
+        accepted_orders = []
+
+        for order in orders:
+
+            # 🔥 AUTO REJECT AFTER 2 MIN
+            if order.status == "PENDING":
+                if timezone.now() - order.created_at >= timedelta(minutes=2):
+                    order.status = "AUTO_REJECTED"
+                    order.save()
+
+            # ❌ BLOCK IF STILL PENDING
+            if order.status == "PENDING":
+                return Response({
+                    "error": "Waiting for vendor response"
+                }, status=400)
+
+            # ✅ ONLY ACCEPTED
+            if order.status == "VENDOR_ACCEPTED":
+                accepted_orders.append(order)
+
+        # =========================
+        # 🔹 FILTER NOT COLLECTED
+        # =========================
+        active_orders = [
+            order for order in accepted_orders if not order.is_collected
+        ]
+
+        # =========================
+        # 🔹 ALL DONE
+        # =========================
+        if not active_orders:
+            return Response({
+                "booking_id": booking.id,
+                "status": "ALL_COLLECTED",
+                "message": "All vendor items collected"
+            })
+
+        # =========================
+        # 🔹 CUSTOMER LOCATION
+        # =========================
+        if not booking.customer.default_lat or not booking.customer.default_long:
+            return Response({
+                "error": "Customer location missing"
+            }, status=400)
+
+        customer_lat = float(booking.customer.default_lat)
+        customer_lon = float(booking.customer.default_long)
+
+        # =========================
+        # 🔹 FIND NEAREST VENDOR
+        # =========================
+        nearest_vendor = None
+        min_distance = float("inf")
+
+        for order in active_orders:
+            vendor = order.vendor
+
+            if not vendor.store_lat or not vendor.store_long:
+                continue
+
+            dist = distance_km(
+                customer_lat,
+                customer_lon,
+                float(vendor.store_lat),
+                float(vendor.store_long)
+            )
+
+            if dist < min_distance:
+                min_distance = dist
+                nearest_vendor = {
+                    "order_id": order.id,
+                    "vendor_id": vendor.user.id,
+                    "vendor_name": vendor.business_name,
+                    "vendor_lat": vendor.store_lat,
+                    "vendor_long": vendor.store_long,
+                    "distance_km": round(dist, 2)
+                }
+
+        # =========================
+        # 🔹 FINAL RESPONSE
+        # =========================
+        return Response({
+            "booking_id": booking.id,
+            "status": "COLLECTION_IN_PROGRESS",
+            "next_vendor": nearest_vendor
+        })
+
+class MarkVendorCollectedAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Mark Vendor Items as Collected",
+        manual_parameters=[
+            openapi.Parameter(
+                'order_id',
+                openapi.IN_PATH,
+                description="Material Order ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        tags=["Vendor Tracking"]
+    )
+    def patch(self, request, order_id):
+
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        order = get_object_or_404(MaterialOrder, id=order_id)
+
+        if order.status != "VENDOR_ACCEPTED":
+            return Response({
+                "error": "Order not accepted"
+            }, status=400)
+
+        if order.is_collected:
+            return Response({
+                "message": "Already collected"
+            })
+
+        order.is_collected = True
+        order.save()
+
+        return Response({
+            "message": "Vendor items collected successfully",
+            "order_id": order.id
+        })

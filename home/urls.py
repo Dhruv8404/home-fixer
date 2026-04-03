@@ -11,6 +11,7 @@ from .views import (
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
+    MarkVendorCollectedAPI,
     NearbyVendorAPI,
     ProductDeleteAPI,
     ProductListAPI,
@@ -40,6 +41,7 @@ from .views import (
         ApproveProductsAPI,
         VendorOrderListAPI,
         AddProductAndServiceChargeAPI,
+    VendorTrackingAPI,
     VerifyStripePaymentAPI
 
 )
@@ -217,7 +219,7 @@ path(
 path("booking/<int:booking_id>/payment/create-intent/", CreatePaymentIntentAPI.as_view()),
 path("booking/<int:booking_id>/payment/verify/", VerifyStripePaymentAPI.as_view()),
 
-
-
+path("booking/<int:booking_id>/vendor-tracking/", VendorTrackingAPI.as_view()),
+path("vendor/order/<int:order_id>/collect/", MarkVendorCollectedAPI.as_view()),
 
 ]
