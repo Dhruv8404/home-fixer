@@ -3078,101 +3078,50 @@ Rules:
         },
         tags=["Vendor Orders"]
     )
+
     def patch(self, request, order_id):
 
-        # =========================
-        # 🔒 ROLE CHECK
-        # =========================
+        # ✅ Only vendor allowed
         if request.user.role != "VENDOR":
             return Response({"error": "Only vendor allowed"}, status=403)
 
         vendor = get_object_or_404(VendorProfile, user=request.user)
-
         order = get_object_or_404(MaterialOrder, id=order_id, vendor=vendor)
 
-        # =========================
-        # 🔥 AUTO REJECT CHECK
-        # =========================
-        if order.status == "REQUESTED":
-            if timezone.now() - order.created_at >= timedelta(minutes=2):
-                order.status = "AUTO_REJECTED"
-                order.save()
+        # 🔥 TIME CHECK (IMPORTANT)
+        time_diff = timezone.now() - order.created_at
 
-        # =========================
-        # ❌ BLOCK AFTER AUTO REJECT
-        # =========================
-        if order.status == "AUTO_REJECTED":
+        # ❌ AFTER 2 MIN → AUTO REJECT
+        if time_diff > timedelta(minutes=2):
+            order.status = "AUTO_REJECTED"
+            order.save()
+
             return Response({
                 "error": "Order auto rejected (time expired)"
             }, status=400)
 
-        # =========================
-        # ❌ BLOCK IF ALREADY ACCEPTED
-        # =========================
+        # ❌ IF ALREADY ACCEPTED
         if order.status == "VENDOR_ACCEPTED":
             return Response({
                 "error": "Order already accepted"
             }, status=400)
 
-        # =========================
-        # ✅ ACCEPT ORDER
-        # =========================
+        # ❌ IF NOT REQUESTED
         if order.status != "REQUESTED":
             return Response({
-                "error": "Invalid order state"
+                "error": f"Invalid state: {order.status}"
             }, status=400)
 
+        # ✅ ACCEPT (WITHIN 2 MIN)
         order.status = "VENDOR_ACCEPTED"
         order.save()
-
-        # =========================
-        # 🔥 UPDATE BOOKING TOTAL
-        # =========================
-        if order.booking:
-            order.booking.update_total_cost()
 
         return Response({
             "message": "Order accepted successfully",
             "order_id": order.id,
             "status": order.status
         })
-import profile
-from django.conf import settings
-from django.utils import timezone
-from rest_framework.views import APIView
-from django.conf import settings
-import stripe
-import cloudinary
-from rest_framework import permissions
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework_simplejwt.tokens import RefreshToken
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-from .models import Booking, BookingItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
-from .serializers import (
-    BookingCreateSerializer,
-    SendOTPSerializer,
-    VendorNearbySerializer,
-    VerifyOTPSerializer,
-    CompleteRegisterSerializer,
-    UserProfileSerializer,
-    LogoutSerializer,
-    VendorProfileSerializer,
-    ServicemanProfileSerializer,
-    CustomerProfileSerializer,
-    ProfileResponseSerializer,
-    UniversalProfileUpdateSerializer,
-    CategorySerializer,
-    ServicemanSerializer,
-    VerifyStripePaymentSerializer
-)
-from .utils import send_email_otp, verify_email_otp
-from rest_framework import request, status
-from rest_framework.parsers import MultiPartParser, FormParser
-from django.shortcuts import get_object_or_404
-from .permissions import IsAdminOrCustomer
-from .utils import delete_cloudinary_image
+
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
