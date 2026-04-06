@@ -108,3 +108,16 @@ def calculate_booking_total(booking):
     booking.save()
 
     return booking.total_cost
+
+
+from django.utils import timezone
+from datetime import timedelta
+from .models import MaterialOrder
+
+def auto_reject_orders():
+    orders = MaterialOrder.objects.filter(status="REQUESTED")
+
+    for order in orders:
+        if timezone.now() - order.created_at >= timedelta(minutes=2):
+            order.status = "AUTO_REJECTED"
+            order.save()    

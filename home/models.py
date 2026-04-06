@@ -403,12 +403,12 @@ class BookingItem(models.Model):
 class MaterialOrder(models.Model):
 
     STATUS_CHOICES = [
-        ('REQUESTED', 'Requested'),
-        ('APPROVED', 'Approved'),
-        ('REJECTED', 'Rejected'),
-        ('FULFILLED', 'Fulfilled')
-    ]
-
+    ('REQUESTED', 'Requested'),
+    ('VENDOR_ACCEPTED', 'Vendor Accepted'),
+    ('DELIVERED', 'Delivered'),        # ✅ NEW
+    ('AUTO_REJECTED', 'Auto Rejected'),
+    ('FULFILLED', 'Fulfilled'),
+]
 
     # =========================
     # RELATIONS

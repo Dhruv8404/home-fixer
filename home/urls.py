@@ -24,6 +24,8 @@ from .views import (
     UpdateProductAndServiceChargeAPI,
     UserProfileAPI,
     LogoutAPI,
+    VendorAcceptOrderAPI,
+    VendorDeliverOrderAPI,
     VendorProfileAPI,
     ServicemanProfileAPI,
     CustomerProfileAPI,
@@ -221,5 +223,7 @@ path("booking/<int:booking_id>/payment/verify/", VerifyStripePaymentAPI.as_view(
 
 path("booking/<int:booking_id>/vendor-tracking/", VendorTrackingAPI.as_view()),
 path("vendor/order/<int:order_id>/collect/", MarkVendorCollectedAPI.as_view()),
+path("vendor/order/<int:order_id>/accept/", VendorAcceptOrderAPI.as_view()),
+path("vendor/order/<int:order_id>/deliver/", VendorDeliverOrderAPI.as_view()),  # ✅ NEW
 
 ]
