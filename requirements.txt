@@ -14,3 +14,8 @@ django-cloudinary-storage
 python-multipart
 channels
 channels-redis
+stripe
+rezorpay
+celery
+redis
+flower
