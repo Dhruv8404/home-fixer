@@ -15,7 +15,7 @@ python-multipart
 channels
 channels-redis
 stripe
-rezorpay
+razorpay
 celery
 redis
 flower
