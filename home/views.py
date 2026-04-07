@@ -2301,48 +2301,6 @@ STATUS:
             "total_cost": booking.total_cost
         })
         
-
-class VendorOrderListAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Vendor: View ONLY approved product orders",
-        responses={200: "Vendor Orders"},
-        tags=["Vendor Orders"]
-    )
-    def get(self, request):
-
-        if request.user.role != "VENDOR":
-            return Response({"error": "Only vendor allowed"}, status=403)
-
-        vendor = get_object_or_404(VendorProfile, user=request.user)
-
-        orders = MaterialOrder.objects.filter(
-            vendor=vendor,
-            customer_approve=True
-        ).order_by("-created_at")
-
-        data = []
-
-        for order in orders:
-
-            # 🔥 AUTO REJECT
-            if order.status == "REQUESTED":
-                if timezone.now() - order.created_at >= timedelta(minutes=2):
-                    order.status = "AUTO_REJECTED"
-                    order.save()
-
-            data.append({
-                "order_id": order.id,
-                "status": order.status,
-                "total_cost": order.total_cost,
-                "created_at": order.created_at,
-            })
-
-        return Response({
-            "count": len(data),
-            "orders": data
-        })
         
 
 # =========================================
@@ -2357,97 +2315,6 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from .models import Booking, BookingItem, Product, ServicemanProfile
-
-
-class AddProductAndServiceChargeAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Serviceman adds product + updates service charge",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["product_id", "quantity", "service_charge"],
-            properties={
-                "product_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                "service_charge": openapi.Schema(type=openapi.TYPE_NUMBER, example=200)
-            }
-        ),
-        responses={200: "Product added + service charge updated"},
-        tags=["Booking"]
-    )
-
-    def post(self, request, booking_id):
-
-        if request.user.role != "SERVICEMAN":
-            return Response({"error": "Only serviceman allowed"}, status=403)
-
-        serviceman = get_object_or_404(
-            ServicemanProfile,
-            user=request.user
-        )
-
-        booking = get_object_or_404(
-            Booking,
-            id=booking_id,
-            serviceman=serviceman
-        )
-
-        if booking.status not in ["ACCEPTED", "ONGOING"]:
-            return Response({"error": "Booking not active"}, status=400)
-
-        product_id = request.data.get("product_id")
-        quantity = int(request.data.get("quantity", 1))
-        service_charge = request.data.get("service_charge")
-
-        if not product_id:
-            return Response({"error": "product_id required"}, status=400)
-
-        if service_charge is None:
-            return Response({"error": "service_charge required"}, status=400)
-
-        product = get_object_or_404(Product, id=product_id)
-
-        # ✅ ADD / UPDATE PRODUCT
-        item, created = BookingItem.objects.get_or_create(
-            booking=booking,
-            product=product,
-            defaults={
-                "quantity": quantity,
-                "product_name": product.name,
-                "product_price": product.price,
-                "product_image": product.image.url if product.image else None,
-
-                # 🔥 IMPORTANT
-                "approval_status": "PENDING",
-
-                "product_data": {
-                    "id": product.id,
-                    "name": product.name,
-                    "price": str(product.price),
-                    "image": product.image.url if product.image else None,
-                }
-            }
-        )
-
-        if not created:
-            item.quantity += quantity
-
-            # 🔥 RESET TO PENDING
-            item.approval_status = "PENDING"
-
-            item.save()
-
-        booking.service_charge_at_booking = service_charge
-        booking.status = "ONGOING"
-        booking.save()
-
-        return Response({
-            "message": "Product added successfully",
-            "product": product.name,
-            "quantity": item.quantity,
-            "status": item.approval_status
-        })
 
 
 class UpdateProductAndServiceChargeAPI(APIView):
@@ -3047,81 +2914,44 @@ class MarkVendorCollectedAPI(APIView):
 
 
 
-class VendorAcceptOrderAPI(APIView):
-    permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        operation_summary="Vendor Accept Order (Auto Reject after 2 min)",
-        operation_description="""
-✔ Vendor can ONLY ACCEPT  
-❌ No manual reject  
-
-⏱ If vendor does not accept within 2 minutes → AUTO_REJECT  
-
-Rules:
-- After auto reject → cannot accept
-- Only REQUESTED orders can be accepted
-""",
-        responses={
-            200: openapi.Response(
-                description="Order accepted",
-                examples={
-                    "application/json": {
-                        "message": "Order accepted successfully",
-                        "order_id": 10,
-                        "status": "VENDOR_ACCEPTED"
-                    }
-                }
-            ),
-            400: "Expired or invalid order",
-            403: "Unauthorized"
-        },
-        tags=["Vendor Orders"]
-    )
-
-    def patch(self, request, order_id):
-
-        # ✅ Only vendor allowed
-        if request.user.role != "VENDOR":
-            return Response({"error": "Only vendor allowed"}, status=403)
-
-        vendor = get_object_or_404(VendorProfile, user=request.user)
-        order = get_object_or_404(MaterialOrder, id=order_id, vendor=vendor)
-
-        # 🔥 TIME CHECK (IMPORTANT)
-        time_diff = timezone.now() - order.created_at
-
-        # ❌ AFTER 2 MIN → AUTO REJECT
-        if time_diff > timedelta(minutes=2):
-            order.status = "AUTO_REJECTED"
-            order.save()
-
-            return Response({
-                "error": "Order auto rejected (time expired)"
-            }, status=400)
-
-        # ❌ IF ALREADY ACCEPTED
-        if order.status == "VENDOR_ACCEPTED":
-            return Response({
-                "error": "Order already accepted"
-            }, status=400)
-
-        # ❌ IF NOT REQUESTED
-        if order.status != "REQUESTED":
-            return Response({
-                "error": f"Invalid state: {order.status}"
-            }, status=400)
-
-        # ✅ ACCEPT (WITHIN 2 MIN)
-        order.status = "VENDOR_ACCEPTED"
-        order.save()
-
-        return Response({
-            "message": "Order accepted successfully",
-            "order_id": order.id,
-            "status": order.status
-        })
-
+import profile
+from django.conf import settings
+from django.utils import timezone
+from rest_framework.views import APIView
+from django.conf import settings
+import stripe
+import cloudinary
+from rest_framework import permissions
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from .models import Booking, BookingItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
+from .serializers import (
+    BookingCreateSerializer,
+    SendOTPSerializer,
+    VendorNearbySerializer,
+    VerifyOTPSerializer,
+    CompleteRegisterSerializer,
+    UserProfileSerializer,
+    LogoutSerializer,
+    VendorProfileSerializer,
+    ServicemanProfileSerializer,
+    CustomerProfileSerializer,
+    ProfileResponseSerializer,
+    UniversalProfileUpdateSerializer,
+    CategorySerializer,
+    ServicemanSerializer,
+    VerifyStripePaymentSerializer
+)
+from .utils import send_email_otp, verify_email_otp
+from rest_framework import request, status
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.shortcuts import get_object_or_404
+from .permissions import IsAdminOrCustomer
+from .utils import delete_cloudinary_image
 
 def get_tokens(user):
     refresh = RefreshToken.for_user(user)
@@ -5089,7 +4919,7 @@ from .serializers import ProductSerializer
 from .utils import distance_km
 
 
-class NearbyProductAPI(APIView):
+class NearbyPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -5387,49 +5217,11 @@ STATUS:
             "total_cost": booking.total_cost
         })
         
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-class VendorOrderListAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Vendor: View ONLY approved product orders",
-        responses={200: "Vendor Orders"},
-        tags=["Vendor Orders"]
-    )
-    def get(self, request):
-
-        if request.user.role != "VENDOR":
-            return Response({"error": "Only vendor allowed"}, status=403)
-
-        vendor = get_object_or_404(VendorProfile, user=request.user)
-
-        orders = MaterialOrder.objects.filter(
-            vendor=vendor,
-            customer_approve=True
-        ).order_by("-created_at")
-
-        data = []
-
-        for order in orders:
-
-            # 🔥 AUTO REJECT
-            if order.status == "REQUESTED":
-                if timezone.now() - order.created_at >= timedelta(minutes=2):
-                    order.status = "AUTO_REJECTED"
-                    order.save()
-
-            data.append({
-                "order_id": order.id,
-                "status": order.status,
-                "total_cost": order.total_cost,
-                "created_at": order.created_at,
-            })
-
-        return Response({
-            "count": len(data),
-            "orders": data
-        })
-        
+class CsrfExemptJWTAuthentication(JWTAuthentication):
+    def enforce_csrf(self, request):
+        return  # ✅ disables CSRF completely
 
 # =========================================
 # 🔹 MERGED API → ADD PRODUCT + SERVICE CHARGE
@@ -6132,63 +5924,268 @@ class MarkVendorCollectedAPI(APIView):
         })
 
 
-class VendorDeliverOrderAPI(APIView):
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from datetime import timedelta
+
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+from .models import (
+    Booking, BookingItem,
+    MaterialOrder, MaterialOrderItem,
+    Product, ServicemanProfile, VendorProfile
+)
+
+
+# =========================================================
+# ✅ 1. SERVICEMAN ADD PRODUCT + SERVICE CHARGE
+# =========================================================
+class AddProductAndServiceAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Vendor Mark Order as Delivered",
-        operation_description="""
-✔ Only accepted orders can be delivered  
-✔ Cannot deliver if auto rejected  
-✔ After delivery → status becomes DELIVERED  
-""",
-        responses={
-            200: openapi.Response(
-                description="Order delivered",
-                examples={
-                    "application/json": {
-                        "message": "Order delivered successfully",
-                        "order_id": 10,
-                        "status": "DELIVERED"
-                    }
-                }
-            ),
-            400: "Invalid state",
-            403: "Unauthorized"
-        },
+        operation_summary="Add product + service charge",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["product_id", "quantity", "service_charge"],
+            properties={
+                "product_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "service_charge": openapi.Schema(type=openapi.TYPE_NUMBER),
+            }
+        ),
+        tags=["Booking"]
+    )
+    def post(self, request, booking_id):
+
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed"}, status=403)
+
+        serviceman = get_object_or_404(ServicemanProfile, user=request.user)
+        booking = get_object_or_404(Booking, id=booking_id, serviceman=serviceman)
+
+        product = get_object_or_404(Product, id=request.data.get("product_id"))
+
+        quantity = int(request.data.get("quantity", 1))
+        service_charge = request.data.get("service_charge")
+
+        item, created = BookingItem.objects.get_or_create(
+            booking=booking,
+            product=product,
+            defaults={
+                "quantity": quantity,
+                "product_name": product.name,
+                "product_price": product.price,
+                "approval_status": "PENDING"
+            }
+        )
+
+        if not created:
+            item.quantity += quantity
+            item.approval_status = "PENDING"
+            item.save()
+
+        # ✅ UPDATE SERVICE TYPE
+        booking.service_type = "Visiting+Service"
+        booking.service_charge_at_booking = service_charge
+        booking.save()
+
+        return Response({
+            "message": "Product added",
+            "service_type": booking.service_type
+        })
+
+
+# =========================================================
+# ✅ 2. CUSTOMER APPROVE / REJECT ITEMS
+# =========================================================
+class ApproveBookingItemsAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Customer approve/reject items",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["status"],
+            properties={
+                "status": openapi.Schema(type=openapi.TYPE_STRING, enum=["APPROVED", "REJECTED"])
+            }
+        ),
+        tags=["Booking"]
+    )
+    def patch(self, request, booking_id):
+
+        if request.user.role != "CUSTOMER":
+            return Response({"error": "Only customer allowed"}, status=403)
+
+        booking = get_object_or_404(Booking, id=booking_id)
+
+        status_value = request.data.get("status")
+
+        items = booking.items.filter(approval_status="PENDING")
+
+        if not items.exists():
+            return Response({"error": "No pending items"}, status=400)
+
+        for item in items:
+            item.approval_status = status_value
+            item.save()
+
+        if status_value == "REJECTED":
+            return Response({"message": "Items rejected"})
+
+        # ✅ CREATE MATERIAL ORDER
+        approved_items = booking.items.filter(
+            approval_status="APPROVED",
+            is_ordered=False
+        )
+
+        vendor_map = {}
+
+        for item in approved_items:
+            vendor = item.product.vendor
+            vendor_map.setdefault(vendor, []).append(item)
+
+        orders = []
+
+        for vendor, items_list in vendor_map.items():
+
+            order = MaterialOrder.objects.create(
+                booking=booking,
+                serviceman=booking.serviceman,
+                vendor=vendor,
+                status="REQUESTED",
+                customer_approve=True
+            )
+
+            total = 0
+
+            for item in items_list:
+                MaterialOrderItem.objects.create(
+                    order=order,
+                    product=item.product,
+                    quantity=item.quantity,
+                    price_at_order=item.product_price
+                )
+
+                total += item.get_total_price()
+                item.is_ordered = True
+                item.save()
+
+            order.total_cost = total
+            order.save()
+
+            orders.append(order.id)
+
+        return Response({
+            "message": "Approved & sent to vendor",
+            "orders": orders
+        })
+
+
+# =========================================================
+# ✅ 3. VENDOR ACCEPT (2 MIN RULE)
+# =========================================================
+class VendorAcceptOrderAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Vendor accepts order (2 min rule)",
         tags=["Vendor Orders"]
     )
     def patch(self, request, order_id):
 
-        # =========================
-        # 🔒 ROLE CHECK
-        # =========================
+        if request.user.role != "VENDOR":
+            return Response({"error": "Only vendor allowed"}, status=403)
+
+        vendor = get_object_or_404(VendorProfile, user=request.user)
+        order = get_object_or_404(MaterialOrder, id=order_id, vendor=vendor)
+
+        # ⏱ TIME CHECK
+        if timezone.now() - order.created_at > timedelta(minutes=2):
+            order.status = "AUTO_REJECTED"
+            order.save()
+            return Response({"error": "Auto rejected (time expired)"}, status=400)
+
+        if order.status != "REQUESTED":
+            return Response({"error": "Invalid order state"}, status=400)
+
+        order.status = "VENDOR_ACCEPTED"
+        order.save()
+
+        return Response({
+            "message": "Order accepted",
+            "status": order.status
+        })
+
+
+# =========================================================
+# ✅ 4. VENDOR DELIVER
+# =========================================================
+class VendorDeliverOrderAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Vendor delivers order",
+        tags=["Vendor Orders"]
+    )
+    def patch(self, request, order_id):
+
+        if request.user.role != "VENDOR":
+            return Response({"error": "Only vendor allowed"}, status=403)
+
+        vendor = get_object_or_404(VendorProfile, user=request.user)
+        order = get_object_or_404(MaterialOrder, id=order_id, vendor=vendor)
+
+        if order.status != "VENDOR_ACCEPTED":
+            return Response({"error": "Order not accepted"}, status=400)
+
+        order.status = "DELIVERED"
+        order.save()
+
+        return Response({"message": "Delivered"})
+
+
+# =========================================================
+# ✅ 5. VENDOR ORDER LIST (AUTO REJECT INCLUDED)
+# =========================================================
+class VendorOrderListAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Vendor order list",
+        tags=["Vendor Orders"]
+    )
+    def get(self, request):
+
         if request.user.role != "VENDOR":
             return Response({"error": "Only vendor allowed"}, status=403)
 
         vendor = get_object_or_404(VendorProfile, user=request.user)
 
-        order = get_object_or_404(MaterialOrder, id=order_id, vendor=vendor)
+        orders = MaterialOrder.objects.filter(
+            vendor=vendor,
+            customer_approve=True
+        )
 
-        # =========================
-        # ❌ BLOCK INVALID STATES
-        # =========================
-        if order.status == "AUTO_REJECTED":
-            return Response({"error": "Order auto rejected"}, status=400)
+        data = []
 
-        if order.status != "VENDOR_ACCEPTED":
-            return Response({
-                "error": "Order must be accepted before delivery"
-            }, status=400)
+        for order in orders:
 
-        # =========================
-        # ✅ MARK DELIVERED
-        # =========================
-        order.status = "DELIVERED"
-        order.save()
+            # 🔥 AUTO REJECT
+            if order.status == "REQUESTED":
+                if timezone.now() - order.created_at >= timedelta(minutes=2):
+                    order.status = "AUTO_REJECTED"
+                    order.save()
 
-        return Response({
-            "message": "Order delivered successfully",
-            "order_id": order.id,
-            "status": order.status
-        })
+            data.append({
+                "id": order.id,
+                "status": order.status,
+                "total_cost": order.total_cost
+            })
+
+        return Response(data)

@@ -724,3 +724,17 @@ class PaymentDetailSerializer(serializers.ModelSerializer):
 
 class VerifyStripePaymentSerializer(serializers.Serializer):
     payment_intent_id = serializers.CharField()
+
+
+
+class BookingSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "service_type",
+            "service_charge_at_booking",
+            "platform_fee",
+            "total_cost",
+        ]

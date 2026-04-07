@@ -250,7 +250,12 @@ class ServicemanOffering(models.Model):
 
 
 class Booking(models.Model):
+    # inside Booking model
 
+    service_type = models.CharField(
+    max_length=50,
+    default="Visiting"
+)
     STATUS_CHOICES = [
         ('PENDING_PAYMENT', 'Pending Payment'),
         ('PENDING', 'Pending'),
@@ -260,7 +265,7 @@ class Booking(models.Model):
         ('COMPLETED', 'Completed'),
         ('CANCELLED', 'Cancelled'),
     ]
-
+    service = models.CharField(max_length=100, default="Visiting")
     PAYMENT_STATUS_CHOICES = [
         ('PENDING', 'Pending'),
         ('PAID', 'Paid'),
@@ -480,7 +485,25 @@ class MaterialOrderItem(models.Model):
     quantity = models.IntegerField()
     price_at_order = models.DecimalField(max_digits=10, decimal_places=2)
 
+    def save(self, *args, **kwargs):
+        # ✅ If updating existing item
+        if self.pk:
+            old = MaterialOrderItem.objects.get(pk=self.pk)
+            order = self.order
 
+            # 🔥 Detect changes
+            if (
+                old.quantity != self.quantity or
+                old.price_at_order != self.price_at_order or
+                old.product_id != self.product_id
+            ):
+                # 🚫 If already approved → reset
+                if order.customer_approve:
+                    order.customer_approve = False
+                    order.status = "REQUESTED"   # optional
+                    order.save(update_fields=["customer_approve", "status"])
+
+        super().save(*args, **kwargs)
 
 class Wallet(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
