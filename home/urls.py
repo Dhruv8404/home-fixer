@@ -41,7 +41,7 @@ from .views import (
     VerifyStripePaymentAPI,
     AddProductAndServiceAPI,
     ApproveBookingItemsAPI,
-    VendorOrderListAPI,
+    VendorOrdersView,
 )
 
 from .admin_views import (
@@ -144,7 +144,7 @@ urlpatterns = [
 
 
     # ================= VENDOR =================
-    path("vendor/orders/", VendorOrderListAPI.as_view()),
+    path("vendor/orders/", VendorOrdersView.as_view()),
     path("vendor/order/<int:order_id>/accept/", VendorAcceptOrderAPI.as_view()),
     path("vendor/order/<int:order_id>/deliver/", VendorDeliverOrderAPI.as_view()),
     path("vendor/order/<int:order_id>/collect/", MarkVendorCollectedAPI.as_view()),

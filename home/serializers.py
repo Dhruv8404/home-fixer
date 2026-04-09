@@ -15,7 +15,7 @@ class EmailPasswordLoginSerializer(serializers.Serializer):
         email = data.get("email")
         password = data.get("password")
 
-        user = authenticate(username=email, password=password)
+        user = authenticate(email=email, password=password)
 
         if not user:
             raise serializers.ValidationError("Invalid email or password")
@@ -61,19 +61,13 @@ class CompleteRegisterSerializer(serializers.Serializer):
     )
 
     def validate_phone(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError(
-            "Phone number must contain only digits"
-        )
+        if not re.fullmatch(r"\d{10}", value):
+            raise serializers.ValidationError("Enter valid 10-digit phone number")
 
-    # 🔥 ADD THIS PART
         if User.objects.filter(phone=value).exists():
-            raise serializers.ValidationError(
-            "User with this phone number already exists"
-        )
+            raise serializers.ValidationError("Phone already exists")
 
         return value
-
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
@@ -139,7 +133,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
 
     skills = serializers.CharField(
     required=False,
-    help_text="Enter skills as comma separated values. Example: Plumbing,Electrician,AC Repair"
+    help_text="Enter skill"
 )
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
@@ -378,16 +372,16 @@ class ProductSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def create(self, validated_data):
-
         request = self.context["request"]
 
         if request.user.role == "VENDOR":
-            vendor = VendorProfile.objects.get(user=request.user)
-            validated_data["vendor"] = vendor
+            try:
+                vendor = VendorProfile.objects.get(user=request.user)
+                validated_data["vendor"] = vendor   # ✅ correct
+            except VendorProfile.DoesNotExist:
+                raise serializers.ValidationError("Vendor profile not found")
 
         return Product.objects.create(**validated_data)
-    
-
 
 # Serviceman
 from .models import Serviceman
@@ -737,4 +731,61 @@ class BookingSerializer(serializers.ModelSerializer):
             "service_charge_at_booking",
             "platform_fee",
             "total_cost",
+        ]
+
+# serializers.py
+from .models import OrderItem
+
+class VendorOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name')
+    product_image = serializers.SerializerMethodField()
+
+    def get_product_image(self, obj):
+        if obj.product.image:
+            return obj.product.image.url
+        return None
+
+    class Meta:
+        model = OrderItem
+        fields = [
+            'id',
+            'product_name',
+            'product_image',
+            'price',        # ✅ use direct field
+            'quantity',
+            'status'
+        ]
+
+from .models import MaterialOrderItem, MaterialOrder
+
+class MaterialOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name')
+    product_image = serializers.SerializerMethodField()
+
+    def get_product_image(self, obj):
+        if obj.product.image:
+            return obj.product.image.url
+        return None
+
+    class Meta:
+        model = MaterialOrderItem   # ✅ IMPORTANT
+        fields = [
+            'id',
+            'product_name',
+            'product_image',
+            'price_at_order',
+            'quantity'
+        ]
+
+class VendorOrderSerializer(serializers.ModelSerializer):
+    items = MaterialOrderItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MaterialOrder
+        fields = [
+            'id',
+            'status',
+            'total_cost',
+            'created_at',
+            'items'   # 🔥 THIS IS KEY
         ]

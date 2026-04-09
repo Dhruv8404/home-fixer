@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
 from cloudinary.models import CloudinaryField
-from rest_framework import serializers
+from django.contrib.auth import get_user_model
 #=============user model manager==================
 class UserManager(BaseUserManager):
     def create_user(self, email, phone, password=None, role='CUSTOMER'):
@@ -373,22 +373,21 @@ class BookingItem(models.Model):
         related_name="items"
     )
 
-    # 🔹 Reference (optional but useful)
     product = models.ForeignKey(
         Product,
         null=True,
         on_delete=models.SET_NULL
     )
 
-    # 🔥 JSON STORAGE (FULL SNAPSHOT)
-    product_data = models.JSONField(default=dict)
-
-    quantity = models.PositiveIntegerField(default=1)
-
-    # 🔥 Snapshot fields (FAST ACCESS)
+    # 🔥 Snapshot (ONLY ONCE)
     product_name = models.CharField(max_length=255)
     product_price = models.DecimalField(max_digits=10, decimal_places=2)
     product_image = models.URLField(null=True, blank=True)
+
+    # 🔥 JSON FULL DATA
+    product_data = models.JSONField(default=dict)
+
+    quantity = models.PositiveIntegerField(default=1)
 
     APPROVAL_CHOICES = [
         ("PENDING", "Pending"),
@@ -401,23 +400,22 @@ class BookingItem(models.Model):
         choices=APPROVAL_CHOICES,
         default="PENDING"
     )
+
     is_ordered = models.BooleanField(default=False)
+
     def get_total_price(self):
         return self.quantity * self.product_price
-
+    
 class MaterialOrder(models.Model):
 
     STATUS_CHOICES = [
-    ('REQUESTED', 'Requested'),
-    ('VENDOR_ACCEPTED', 'Vendor Accepted'),
-    ('DELIVERED', 'Delivered'),        # ✅ NEW
-    ('AUTO_REJECTED', 'Auto Rejected'),
-    ('FULFILLED', 'Fulfilled'),
-]
+        ('REQUESTED', 'Requested'),
+        ('VENDOR_ACCEPTED', 'Vendor Accepted'),
+        ('DELIVERED', 'Delivered'),
+        ('AUTO_REJECTED', 'Auto Rejected'),
+        ('FULFILLED', 'Fulfilled'),
+    ]
 
-    # =========================
-    # RELATIONS
-    # =========================
     booking = models.ForeignKey(
         Booking,
         null=True,
@@ -431,79 +429,84 @@ class MaterialOrder(models.Model):
         on_delete=models.CASCADE,
         related_name="material_orders"
     )
-    is_collected = models.BooleanField(default=False)
+
     vendor = models.ForeignKey(
         VendorProfile,
         on_delete=models.CASCADE,
         related_name="material_orders"
     )
 
-    # =========================
-    # ORDER STATUS
-    # =========================
+    is_collected = models.BooleanField(default=False)
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default='REQUESTED'
     )
 
+    customer_approve = models.BooleanField(default=False)
 
-
-    # =========================
-    # CUSTOMER APPROVAL (🔥 IMPORTANT)
-    # =========================
-    customer_approve = models.BooleanField(
-        default=False
-    )
-
-    # =========================
-    # COST
-    # =========================
     total_cost = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0
     )
 
-    # =========================
-    # TIMESTAMPS
-    # =========================
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # =========================
-    # STRING
-    # =========================
-    def __str__(self):
-        return f"Order #{self.id} | Booking {self.booking_id} | Vendor {self.vendor_id}"
+    def update_total_cost(self):
+        total = sum([
+            item.quantity * item.price_at_order
+            for item in self.items.all()
+        ])
+        self.total_cost = total
+        self.save(update_fields=["total_cost"])
 
+    def __str__(self):
+        return f"Order #{self.id}"
 
 
 class MaterialOrderItem(models.Model):
-    order = models.ForeignKey(MaterialOrder, on_delete=models.CASCADE)
+    order = models.ForeignKey(
+        MaterialOrder,
+        on_delete=models.CASCADE,
+        related_name="items"   # ✅ FIXED
+    )
+
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
-    quantity = models.IntegerField()
-    price_at_order = models.DecimalField(max_digits=10, decimal_places=2)
+
+    quantity = models.PositiveIntegerField()   # ✅ FIXED
+
+    price_at_order = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
 
     def save(self, *args, **kwargs):
-        # ✅ If updating existing item
+        order = self.order
+
+        # ✅ Check if update
         if self.pk:
             old = MaterialOrderItem.objects.get(pk=self.pk)
-            order = self.order
 
-            # 🔥 Detect changes
             if (
                 old.quantity != self.quantity or
                 old.price_at_order != self.price_at_order or
                 old.product_id != self.product_id
             ):
-                # 🚫 If already approved → reset
+                # 🔥 Reset approval
                 if order.customer_approve:
                     order.customer_approve = False
-                    order.status = "REQUESTED"   # optional
+                    order.status = "REQUESTED"
                     order.save(update_fields=["customer_approve", "status"])
 
         super().save(*args, **kwargs)
+
+        # 🔥 AUTO UPDATE TOTAL COST
+        order.update_total_cost()
+
 
 class Wallet(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -573,3 +576,36 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment #{self.id} for Booking #{self.booking.id}"
+
+
+
+User = get_user_model()
+
+class OrderItem(models.Model):
+
+    booking = models.ForeignKey(
+        Booking,
+        related_name='order_items',
+        on_delete=models.CASCADE
+    )
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+
+    # ❌ REMOVE vendor field
+
+    quantity = models.PositiveIntegerField()
+
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('requested', 'Requested'),
+            ('approved', 'Approved'),
+            ('auto_rejected', 'Auto Rejected'),
+            ('delivered', 'Delivered'),
+        ],
+        default='requested'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)

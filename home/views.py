@@ -12,7 +12,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from .models import Booking, BookingItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
+from .models import Booking, BookingItem, OrderItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
     BookingCreateSerializer,
     SendOTPSerializer,
@@ -6153,39 +6153,24 @@ class VendorDeliverOrderAPI(APIView):
 # =========================================================
 # ✅ 5. VENDOR ORDER LIST (AUTO REJECT INCLUDED)
 # =========================================================
-class VendorOrderListAPI(APIView):
+from .models import OrderItem, VendorProfile
+from .serializers import VendorOrderSerializer
+
+class VendorOrdersView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Vendor order list",
-        tags=["Vendor Orders"]
+        operation_summary="Get Vendor Orders",
+        operation_description="Returns all order items for logged-in vendor"
     )
     def get(self, request):
+        vendor = VendorProfile.objects.get(user=request.user)
 
-        if request.user.role != "VENDOR":
-            return Response({"error": "Only vendor allowed"}, status=403)
+        orders = MaterialOrder.objects.filter(vendor=vendor).order_by('-created_at')
 
-        vendor = get_object_or_404(VendorProfile, user=request.user)
+        serializer = VendorOrderSerializer(orders, many=True)
 
-        orders = MaterialOrder.objects.filter(
-            vendor=vendor,
-            customer_approve=True
-        )
-
-        data = []
-
-        for order in orders:
-
-            # 🔥 AUTO REJECT
-            if order.status == "REQUESTED":
-                if timezone.now() - order.created_at >= timedelta(minutes=2):
-                    order.status = "AUTO_REJECTED"
-                    order.save()
-
-            data.append({
-                "id": order.id,
-                "status": order.status,
-                "total_cost": order.total_cost
-            })
-
-        return Response(data)
+        return Response({
+            "status": True,
+            "data": serializer.data
+        })
