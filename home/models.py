@@ -451,7 +451,13 @@ class MaterialOrder(models.Model):
         decimal_places=2,
         default=0
     )
-
+    assigned_vendor = models.ForeignKey(
+        VendorProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_orders"
+)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
