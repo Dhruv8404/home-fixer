@@ -250,12 +250,12 @@ class ServicemanOffering(models.Model):
 
 
 class Booking(models.Model):
-    # inside Booking model
 
-    service_type = models.CharField(
-    max_length=50,
-    default="Visiting"
-)
+    SERVICE_TYPE_CHOICES = [
+        ("VISITING", "Visiting"),
+        ("VISITING_SERVICE", "Visiting + Service"),
+    ]
+
     STATUS_CHOICES = [
         ('PENDING_PAYMENT', 'Pending Payment'),
         ('PENDING', 'Pending'),
@@ -265,65 +265,77 @@ class Booking(models.Model):
         ('COMPLETED', 'Completed'),
         ('CANCELLED', 'Cancelled'),
     ]
-    service = models.CharField(max_length=100, default="Visiting")
+
     PAYMENT_STATUS_CHOICES = [
         ('PENDING', 'Pending'),
+        ('PARTIAL', 'Partial Paid'),   # 🔥 NEW
         ('PAID', 'Paid'),
         ('FAILED', 'Failed'),
     ]
 
-    customer = models.ForeignKey(
-        CustomerProfile,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True
-    )
-
-    serviceman = models.ForeignKey(
-        ServicemanProfile, 
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True
-    )
+    customer = models.ForeignKey("CustomerProfile", on_delete=models.CASCADE, null=True, blank=True)
+    serviceman = models.ForeignKey("ServicemanProfile", on_delete=models.CASCADE, null=True, blank=True)
 
     scheduled_date = models.DateField()
     scheduled_time = models.TimeField()
+
     problem_title = models.CharField(max_length=255)
     problem_description = models.TextField()
     image_urls = models.JSONField(default=list, blank=True)
+    services = models.ManyToManyField("Service", blank=True)  # 🔥 NEW: multiple services field
 
-    service_charge_at_booking = models.DecimalField(max_digits=10, decimal_places=2)
-    platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
-    total_cost = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # 🔥 STATUS
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='PENDING_PAYMENT'
-    )
+    service_type = models.CharField(max_length=30, choices=SERVICE_TYPE_CHOICES, default="VISITING")
 
-    # 🔥 PAYMENT STATUS
-    payment_status = models.CharField(
-        max_length=20,
-        choices=PAYMENT_STATUS_CHOICES,
-        default='PENDING'
-    )
+    visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    total_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING_PAYMENT')
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='PENDING')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # 🔥 SERVICE UPDATE
+    def update_service_type(self):
+        has_items = False
+        if self.pk:
+            has_items = self.items.exists()
+
+        if self.service_charge > 0 or has_items:
+            self.service_type = "VISITING_SERVICE"
+        else:
+            self.service_type = "VISITING"
+
+    # 🔥 TOTAL UPDATE
+    def update_total_cost(self):
+        if self.pk:
+            product_total = sum([
+                item.get_total_price()
+                for item in self.items.filter(approval_status="APPROVED")
+            ])
+        else:
+            product_total = 0
+
+        self.total_cost = (
+            self.visiting_charge +
+            self.service_charge +
+            self.platform_fee +
+            product_total
+        )
+
+    # 🔥 SAVE OVERRIDE
+    def save(self, *args, **kwargs):
+        self.update_service_type()
+        self.update_total_cost()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"Booking #{self.id}"
-
-    def update_total_cost(self):
-        product_total = sum([
-            item.get_total_price()
-            for item in self.items.filter(approval_status="APPROVED")
-        ])
-        self.total_cost = self.service_charge_at_booking + product_total
-        self.save()
-
+    
 class BookingImage(models.Model):
 
     booking = models.ForeignKey(
@@ -367,24 +379,15 @@ class Product(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 class BookingItem(models.Model):
-    booking = models.ForeignKey(
-        Booking,
-        on_delete=models.CASCADE,
-        related_name="items"
-    )
 
-    product = models.ForeignKey(
-        Product,
-        null=True,
-        on_delete=models.SET_NULL
-    )
+    booking = models.ForeignKey("Booking", on_delete=models.CASCADE, related_name="items")
 
-    # 🔥 Snapshot (ONLY ONCE)
+    product = models.ForeignKey("Product", null=True, on_delete=models.SET_NULL)
+
     product_name = models.CharField(max_length=255)
     product_price = models.DecimalField(max_digits=10, decimal_places=2)
     product_image = models.URLField(null=True, blank=True)
 
-    # 🔥 JSON FULL DATA
     product_data = models.JSONField(default=dict)
 
     quantity = models.PositiveIntegerField(default=1)
@@ -393,28 +396,38 @@ class BookingItem(models.Model):
         ("PENDING", "Pending"),
         ("APPROVED", "Approved"),
         ("REJECTED", "Rejected"),
+        ("AUTO_REJECTED", "Auto Rejected"),
     ]
 
-    approval_status = models.CharField(
-        max_length=20,
-        choices=APPROVAL_CHOICES,
-        default="PENDING"
-    )
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default="PENDING")
 
     is_ordered = models.BooleanField(default=False)
 
     def get_total_price(self):
         return self.quantity * self.product_price
-    
+
+    # 🔥 OPTIMIZED SAVE
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        if self.booking:
+            self.booking.update_total_cost()
+            self.booking.update_service_type()
+            self.booking.save(update_fields=["total_cost", "service_type"])
+            
+
 class MaterialOrder(models.Model):
 
     STATUS_CHOICES = [
         ('REQUESTED', 'Requested'),
         ('VENDOR_ACCEPTED', 'Vendor Accepted'),
+        ('COLLECTED', 'Collected by Serviceman'),  # 🔥 NEW
         ('DELIVERED', 'Delivered'),
         ('AUTO_REJECTED', 'Auto Rejected'),
         ('FULFILLED', 'Fulfilled'),
     ]
+
+    tracking_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
 
     booking = models.ForeignKey(
         Booking,
@@ -460,6 +473,25 @@ class MaterialOrder(models.Model):
 )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def check_auto_reject(self):
+        from django.utils import timezone
+        import datetime
+        if self.status == 'REQUESTED':
+            if timezone.now() > self.created_at + datetime.timedelta(minutes=2):
+                self.status = 'AUTO_REJECTED'
+                self.save(update_fields=['status'])
+                
+                # Auto-reject the booking items tied to this order
+                for item in self.booking.items.filter(product__vendor=self.vendor, approval_status="APPROVED"):
+                    item.approval_status = "AUTO_REJECTED"
+                    item.save(update_fields=["approval_status"])
+
+    def save(self, *args, **kwargs):
+        import uuid
+        if not self.tracking_code:
+            self.tracking_code = f"TRK-{str(uuid.uuid4())[:8].upper()}"
+        super().save(*args, **kwargs)
 
     def update_total_cost(self):
         total = sum([
@@ -544,7 +576,11 @@ class Review(models.Model):
 
 
 #===========================PAYMENT MODEL STARTS HERE===========================#
+from django.db import models
+from django.utils import timezone
+
 class Payment(models.Model):
+
     STATUS_CHOICES = [
         ("PENDING", "Pending"),
         ("PAID", "Paid"),
@@ -559,19 +595,57 @@ class Payment(models.Model):
         ("WALLET", "Wallet"),
     ]
 
+    GATEWAY_CHOICES = [
+        ("RAZORPAY", "Razorpay"),
+        ("STRIPE", "Stripe"),
+    ]
+
+    PAYMENT_TYPE_CHOICES = [
+        ("VISITING", "Visiting Payment"),
+        ("FINAL", "Final Payment"),
+    ]
+
     booking = models.ForeignKey(
-        Booking,
+        "Booking",
         on_delete=models.CASCADE,
         related_name="payments"
     )
+
     customer = models.ForeignKey(
-        CustomerProfile,
+        "CustomerProfile",
         on_delete=models.CASCADE
     )
 
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    method = models.CharField(max_length=20, choices=METHOD_CHOICES, null=True, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    payment_type = models.CharField(
+        max_length=20,
+        choices=PAYMENT_TYPE_CHOICES,
+        default="VISITING"
+    )
+
+    method = models.CharField(
+        max_length=20,
+        choices=METHOD_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    gateway = models.CharField(
+        max_length=20,
+        choices=GATEWAY_CHOICES,
+        default="RAZORPAY"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING"
+    )
 
     gateway_order_id = models.CharField(max_length=255, null=True, blank=True)
     gateway_payment_id = models.CharField(max_length=255, null=True, blank=True)
@@ -580,11 +654,65 @@ class Payment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 
+
+    # 🔥 MAIN LOGIC
+    def save(self, *args, **kwargs):
+        is_paid_before = False
+
+        if self.pk:
+            old = Payment.objects.get(pk=self.pk)
+            is_paid_before = old.status == "PAID"
+
+        # 🔥 AUTO AMOUNT CALCULATION
+        if not self.amount or self.amount == 0:
+
+            # ✅ VISITING PAYMENT
+            if self.payment_type in ("VISITING", "VISITING_SERVICE"):
+                base_visiting = self.booking.serviceman.visiting_charge
+                self.amount = base_visiting + self.booking.platform_fee
+
+                # Safely update the booking record to match
+                if self.booking.visiting_charge != base_visiting:
+                    self.booking.visiting_charge = base_visiting
+                    self.booking.save(update_fields=["visiting_charge", "total_cost"])
+
+            # ✅ FINAL PAYMENT
+            elif self.payment_type == "FINAL":
+                product_total = sum([
+                    item.quantity * item.product_price
+                    for item in self.booking.items.filter(approval_status="APPROVED")
+                ])
+
+                self.amount = (
+                    self.booking.service_charge +
+                    product_total
+                )
+
+        # 🔥 SET PAID TIME
+        if self.status == "PAID" and not self.paid_at:
+            self.paid_at = timezone.now()
+
+        super().save(*args, **kwargs)
+
+        # 🔥 UPDATE BOOKING STATUS
+        if self.status == "PAID" and not is_paid_before:
+
+            # ✅ VISITING PAID
+            if self.payment_type in ("VISITING", "VISITING_SERVICE"):
+                self.booking.payment_status = "PARTIAL"
+                self.booking.status = "PENDING"
+
+            # ✅ FINAL PAID
+            elif self.payment_type == "FINAL":
+                self.booking.payment_status = "PAID"
+                self.booking.status = "COMPLETED"
+
+            self.booking.save(update_fields=["payment_status", "status"])
+
     def __str__(self):
-        return f"Payment #{self.id} for Booking #{self.booking.id}"
-
-
-
+        return f"{self.payment_type} - {self.gateway} Payment #{self.id}"
+    
+    
 User = get_user_model()
 
 class OrderItem(models.Model):

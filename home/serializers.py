@@ -3,7 +3,7 @@ from decimal import Decimal
 import cloudinary.uploader
 from .utils import delete_cloudinary_image
 from rest_framework import serializers
-from .models import   Payment, User , CustomerProfile, ServicemanProfile, VendorProfile
+from .models import Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, Booking, BookingItem
 import re
 from django.contrib.auth import authenticate
 
@@ -435,6 +435,7 @@ from datetime import datetime
 
 class BookingCreateSerializer(serializers.ModelSerializer):
     scheduled_time = serializers.CharField()
+    services = serializers.PrimaryKeyRelatedField(many=True, queryset=Service.objects.all(), required=False)
 
     class Meta:
         model = Booking
@@ -444,6 +445,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "scheduled_time",
             "problem_title",
             "problem_description",
+            "services",
         ]
 
         
@@ -514,6 +516,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return result["secure_url"]
 
     def create(self, validated_data):
+        services_data = validated_data.pop("services", [])
+        
         request = self.context["request"]
         customer_profile = request.user.customerprofile
         serviceman = validated_data["serviceman"]
@@ -526,16 +530,16 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         # 🔥 CREATE BOOKING WITH PAYMENT FIRST
         booking = Booking.objects.create(
             customer=customer_profile,
-            service_charge_at_booking=service_charge,
+            visiting_charge=serviceman.visiting_charge,
+            service_charge=0,
             platform_fee=platform_fee,
-            total_cost=total_cost,
-
-            # 🔥 CRITICAL PART
             status="PENDING_PAYMENT",
             payment_status="PENDING",
-
             **validated_data
-        )
+        )   
+        
+        if services_data:
+            booking.services.set(services_data)
 
         return booking
     
@@ -565,6 +569,7 @@ class BookingDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "service_type",
             "scheduled_date",
             "scheduled_time",
             "problem_title",
@@ -579,6 +584,7 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             "platform_fee",
             "total_amount",
             "created_at",
+            "services",
         ]
 
     def get_serviceman_skills(self, obj):
@@ -588,8 +594,8 @@ class BookingDetailSerializer(serializers.ModelSerializer):
 
     # ✅ FIXED
     def get_service_charge(self, obj):
-        return obj.service_charge_at_booking
-
+        return obj.visiting_charge + obj.service_charge
+    
     def get_platform_fee(self, obj):
         return obj.platform_fee
 
@@ -611,6 +617,11 @@ class BookingDetailSerializer(serializers.ModelSerializer):
             "lat": getattr(customer, "default_lat", None),
             "long": getattr(customer, "default_long", None),
         }
+    def update_service_type(self):
+        if self.service_charge > 0:
+            self.service_type = "VISITING_SERVICE"
+        else:
+            self.service_type = "VISITING"
         
     #Booking tracking response serializer
 class BookingTrackingSerializer(serializers.Serializer):
@@ -618,6 +629,7 @@ class BookingTrackingSerializer(serializers.Serializer):
     status = serializers.CharField()
     status_text = serializers.CharField()
     serviceman_name = serializers.CharField()
+    serviceman_image = serializers.URLField(required=False, allow_null=True)
     serviceman_rating = serializers.FloatField()
     serviceman_lat = serializers.DecimalField(max_digits=10, decimal_places=8)
     serviceman_long = serializers.DecimalField(max_digits=11, decimal_places=8)
@@ -709,30 +721,30 @@ class PaymentDetailSerializer(serializers.ModelSerializer):
             "id",
             "amount",
             "method",
+            "gateway",   # ✅ ADD THIS
             "status",
             "gateway_order_id",
             "gateway_payment_id",
             "created_at",
             "paid_at",
         ]
-
+        
 class VerifyStripePaymentSerializer(serializers.Serializer):
     payment_intent_id = serializers.CharField()
 
 
 
 class BookingSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Booking
         fields = [
             "id",
             "service_type",
-            "service_charge_at_booking",
+            "visiting_charge",
+            "service_charge",
             "platform_fee",
             "total_cost",
         ]
-
 # serializers.py
 from .models import OrderItem
 
@@ -787,5 +799,44 @@ class VendorOrderSerializer(serializers.ModelSerializer):
             'status',
             'total_cost',
             'created_at',
+            'tracking_code',
             'items'   # 🔥 THIS IS KEY
+        ]
+
+
+class BookingItemHistorySerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField()
+    product_image = serializers.SerializerMethodField()
+    item_total = serializers.SerializerMethodField()
+
+    def get_product_image(self, obj):
+        if obj.product and obj.product.image:
+            return obj.product.image.url
+        return obj.product_image
+
+    def get_item_total(self, obj):
+        return obj.quantity * obj.product_price
+
+    class Meta:
+        model = BookingItem
+        fields = [
+            "id", "product_name", "product_image", "product_price", 
+            "quantity", "item_total", "approval_status"
+        ]
+
+class BookingHistorySerializer(serializers.ModelSerializer):
+    items = BookingItemHistorySerializer(many=True, read_only=True)
+    customer_name = serializers.CharField(source="customer.user.name", read_only=True)
+    serviceman_name = serializers.CharField(source="serviceman.user.name", read_only=True)
+    product_total = serializers.SerializerMethodField()
+
+    def get_product_total(self, obj):
+        return sum([item.get_total_price() for item in obj.items.filter(approval_status="APPROVED")])
+    
+    class Meta:
+        model = Booking
+        fields = [
+            "id", "status", "service_type", "scheduled_date", "scheduled_time",
+            "problem_title", "visiting_charge", "service_charge", "platform_fee",
+            "product_total", "total_cost", "created_at", "customer_name", "serviceman_name", "items"
         ]

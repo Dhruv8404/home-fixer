@@ -2,6 +2,7 @@ import profile
 from django.conf import settings
 from django.utils import timezone
 from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView
 from django.conf import settings
 from datetime import timedelta
 import stripe
@@ -28,13 +29,15 @@ from .serializers import (
     UniversalProfileUpdateSerializer,
     CategorySerializer,
     ServicemanSerializer,
-    VerifyStripePaymentSerializer
+    VerifyStripePaymentSerializer,
+    BookingHistorySerializer
 )
-from .utils import send_email_otp, verify_email_otp
+
+from .utils import create_payment, send_email_otp, verify_email_otp
 from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
-from .permissions import IsAdminOrCustomer
+from .permissions import IsAdminOrCustomer, IsServiceman
 from .utils import delete_cloudinary_image
 
 def get_tokens(user):
@@ -1250,7 +1253,8 @@ class ServicemanBookingActionAPI(APIView):
             return Response({"error": "Not assigned"}, status=403)
 
         # 🔥 PAYMENT CHECK
-        if booking.payment_status != "PAID":
+        # 🔥 PAYMENT CHECK: Allow if PAID or PARTIAL (visiting paid)
+        if booking.payment_status not in ["PAID", "PARTIAL"]:
             return Response({"error": "Payment not completed"}, status=400)
 
         if booking.status != "PENDING":
@@ -2011,6 +2015,7 @@ class NearbyProductAPI(APIView):
         manual_parameters=[
             openapi.Parameter("lat", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
             openapi.Parameter("lon", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=True),
+            openapi.Parameter("booking_id", openapi.IN_QUERY, type=openapi.TYPE_INTEGER, required=False, description="Exclude vendors auto-rejected for this booking"),
         ],
         responses={200: ProductSerializer(many=True)},
         tags=["Products"]
@@ -2041,6 +2046,18 @@ class NearbyProductAPI(APIView):
             store_lat__isnull=False,
             store_long__isnull=False
         )
+
+        booking_id = request.query_params.get("booking_id")
+        if booking_id:
+            try:
+                rejected_vendor_ids = MaterialOrder.objects.filter(
+                    booking_id=booking_id,
+                    status="AUTO_REJECTED"
+                ).values_list("vendor_id", flat=True)
+                if rejected_vendor_ids.exists():
+                    vendors = vendors.exclude(user_id__in=rejected_vendor_ids)
+            except Exception:
+                pass
 
         products = []
 
@@ -2114,11 +2131,11 @@ class BookingSummaryAPI(APIView):
             if item.approval_status == "APPROVED"
         ])
 
-        total = booking.service_charge_at_booking + product_total
+        total = booking.service_charge + product_total
 
         return Response({
             "booking_id": booking.id,
-            "service_charge": booking.service_charge_at_booking,
+            "service_charge": booking.service_charge,
             "product_total": product_total,
             "total_amount": total,
 
@@ -2439,7 +2456,7 @@ class UpdateProductAndServiceChargeAPI(APIView):
         # 7. UPDATE SERVICE CHARGE
         # =========================
         if service_charge is not None:
-            booking.service_charge_at_booking = service_charge
+            booking.service_charge = service_charge
 
         booking.save()
 
@@ -2451,205 +2468,11 @@ class UpdateProductAndServiceChargeAPI(APIView):
             "booking_id": booking.id,
             "product": product.name,
             "quantity": quantity,
-            "service_charge": booking.service_charge_at_booking,
+            "service_charge": booking.service_charge,
             "status": booking.status
         })        
 
 
-
-
-class CreatePaymentIntentAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Create Payment Intent",
-        operation_description="Create Stripe payment for booking",
-        security=[{"Bearer": []}],
-        tags=["Payment"]
-    )
-    def post(self, request, booking_id):
-
-        # =========================
-        # 1. ROLE CHECK
-        # =========================
-        if request.user.role != "CUSTOMER":
-            return Response({"error": "Only customer can pay"}, status=403)
-
-        # =========================
-        # 2. GET BOOKING
-        # =========================
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        if booking.customer.user != request.user:
-            return Response({"error": "Unauthorized"}, status=403)
-
-        # =========================
-        # 3. VALIDATION
-        # =========================
-        if booking.status != "PENDING_PAYMENT":
-            return Response({"error": "Invalid booking state"}, status=400)
-
-        if booking.payment_status == "PAID":
-            return Response({"error": "Booking already paid"}, status=400)
-
-        if booking.total_cost <= 0:
-            return Response({"error": "Invalid booking amount"}, status=400)
-
-        # =========================
-        # 4. STRIPE AMOUNT
-        # =========================
-        amount = int(booking.total_cost * 100)  # INR → paise
-
-        try:
-            intent = stripe.PaymentIntent.create(
-                amount=amount,
-                currency="inr",
-                metadata={
-                    "booking_id": str(booking.id),
-                    "customer_id": str(request.user.id)
-                }
-            )
-        except Exception as e:
-            return Response({
-                "error": "Stripe error",
-                "details": str(e)
-            }, status=500)
-
-        # =========================
-        # 5. SAVE PAYMENT RECORD
-        # =========================
-        Payment.objects.create(
-            booking=booking,
-            customer=booking.customer,
-            amount=booking.total_cost,
-            status="PENDING",
-            gateway_order_id=intent.id
-        )
-
-        # =========================
-        # 6. RESPONSE
-        # =========================
-        return Response({
-            "client_secret": intent.client_secret,
-            "payment_intent_id": intent.id,
-            "amount": amount,
-            "currency": "INR",
-            "public_key": settings.STRIPE_PUBLIC_KEY
-        })
-
-
-class VerifyStripePaymentAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Verify Stripe Payment (Swagger Test Mode)",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["payment_intent_id"],
-            properties={
-                "payment_intent_id": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example="pi_3Nxxxxxxx"
-                ),
-                "force_success": openapi.Schema(
-                    type=openapi.TYPE_BOOLEAN,
-                    example=True,
-                    description="FOR TESTING ONLY (Swagger)"
-                )
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Payment success",
-                examples={
-                    "application/json": {
-                        "message": "Payment successful",
-                        "booking_id": 65,
-                        "booking_status": "PENDING",
-                        "payment_status": "PAID"
-                    }
-                }
-            )
-        },
-        security=[{"Bearer": []}],
-        tags=["Payment"]
-    )
-    def post(self, request, booking_id):
-
-        payment_intent_id = request.data.get("payment_intent_id")
-        force_success = request.data.get("force_success", False)
-
-        if not payment_intent_id:
-            return Response({"error": "payment_intent_id required"}, status=400)
-
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        if booking.customer.user != request.user:
-            return Response({"error": "Unauthorized"}, status=403)
-
-        # 🔥 FIXED QUERY (NO status filter)
-        payment = Payment.objects.filter(
-            booking=booking,
-            gateway_order_id=payment_intent_id
-        ).first()
-
-        if not payment:
-            return Response({"error": "Payment not found"}, status=404)
-
-        # =========================
-        # 🔥 SWAGGER FORCE MODE
-        # =========================
-        if force_success:
-
-            payment.status = "PAID"
-            payment.gateway_payment_id = payment_intent_id
-            payment.paid_at = timezone.now()
-            payment.save()
-
-            booking.payment_status = "PAID"
-            booking.status = "PENDING"
-            booking.save()
-
-            return Response({
-                "message": "Payment successful (TEST MODE)",
-                "booking_id": booking.id,
-                "booking_status": booking.status,
-                "payment_status": booking.payment_status
-            })
-
-        # =========================
-        # REAL STRIPE VERIFY
-        # =========================
-        try:
-            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-        except Exception as e:
-            return Response({
-                "error": "Stripe error",
-                "details": str(e)
-            }, status=500)
-
-        if intent.status == "succeeded":
-
-            payment.status = "PAID"
-            payment.gateway_payment_id = payment_intent_id
-            payment.paid_at = timezone.now()
-            payment.save()
-
-            booking.payment_status = "PAID"
-            booking.status = "PENDING"
-            booking.save()
-
-            return Response({
-                "message": "Payment successful",
-                "booking_id": booking.id,
-                "booking_status": booking.status,
-                "payment_status": booking.payment_status
-            })
-
-        return Response({
-            "error": "Payment not completed",
-            "stripe_status": intent.status
-        }, status=400)        
 
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -2892,8 +2715,10 @@ class MarkVendorCollectedAPI(APIView):
         if request.user.role != "SERVICEMAN":
             return Response({"error": "Only serviceman allowed"}, status=403)
 
+        # Retrieve the order and process any pending auto‑rejects
         order = get_object_or_404(MaterialOrder, id=order_id)
-
+        order.check_auto_reject()
+        order.refresh_from_db()
         if order.status != "VENDOR_ACCEPTED":
             return Response({
                 "error": "Order not accepted"
@@ -4165,11 +3990,12 @@ class ServicemanBookingActionAPI(APIView):
         if booking.serviceman != serviceman:
             return Response({"error": "Not assigned"}, status=403)
 
-        # 🔥 PAYMENT CHECK
-        if booking.payment_status != "PAID":
+        # 🔥 PAYMENT CHECK (Now supports two-step payment where initial payment sets PARTIAL)
+        if booking.payment_status not in ["PAID", "PARTIAL"]:
             return Response({"error": "Payment not completed"}, status=400)
 
-        if booking.status != "PENDING":
+        # After visiting payment is made, Booking status becomes ONGOING or PENDING_PAYMENT
+        if booking.status not in ["PENDING", "PENDING_PAYMENT", "ONGOING"]:
             return Response({"error": "Invalid booking state"}, status=400)
 
         action = request.data.get("action")
@@ -4303,7 +4129,10 @@ class ProductListAPI(APIView):
     permission_classes = [AllowAny]
     @swagger_auto_schema(
         operation_summary="Get All Available Products",
-        operation_description="Returns all products with stock_quantity > 0.",
+        operation_description="Returns all products with stock_quantity > 0. If booking_id is provided, products from auto-rejected vendors for that booking are excluded.",
+        manual_parameters=[
+            openapi.Parameter("booking_id", openapi.IN_QUERY, type=openapi.TYPE_INTEGER, required=False, description="Exclude auto-rejected vendors from this specific booking ID")
+        ],
         responses={200: ProductSerializer(many=True)},
         tags=["Products"]
     )
@@ -4311,6 +4140,18 @@ class ProductListAPI(APIView):
     def get(self, request):
 
         products = Product.objects.filter(stock_quantity__gt=0)
+        
+        booking_id = request.query_params.get("booking_id")
+        if booking_id:
+            try:
+                rejected_vendor_ids = MaterialOrder.objects.filter(
+                    booking_id=booking_id,
+                    status="AUTO_REJECTED"
+                ).values_list("vendor_id", flat=True)
+                if rejected_vendor_ids.exists():
+                    products = products.exclude(vendor__user_id__in=rejected_vendor_ids)
+            except Exception:
+                pass
 
         serializer = ProductSerializer(products, many=True)
 
@@ -4717,9 +4558,9 @@ class BookingTrackingAPI(APIView):
             return Response({"error": "Access not allowed"}, status=403)
 
         # =========================
-        # 🔥 3. PAYMENT CHECK
+        # 🔥 3. PAYMENT CHECK (Now supports two-step payment where initial payment sets PARTIAL)
         # =========================
-        if booking.payment_status != "PAID":
+        if booking.payment_status not in ["PAID", "PARTIAL"]:
             return Response({
                 "error": "Tracking not available until payment completed"
             }, status=400)
@@ -4778,6 +4619,10 @@ class BookingTrackingAPI(APIView):
             "status": booking.status,
             "status_text": get_status_text(booking.status),
             "serviceman_name": serviceman.user.name or serviceman.user.email,
+            "serviceman_image": (
+                serviceman.profile_image.url
+                if serviceman.profile_image else None
+            ),
             "serviceman_rating": float(serviceman.average_rating or 0),
             "serviceman_lat": serviceman.live_lat or serviceman.current_lat,
             "serviceman_long": serviceman.live_long or serviceman.current_long,
@@ -5019,39 +4864,94 @@ class BookingSummaryAPI(APIView):
         tags=["Booking"]
     )
     def get(self, request, booking_id):
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
 
-        booking = get_object_or_404(Booking, id=booking_id)
+        all_items = booking.items.all()
+        
+        product_total = 0
+        products_list = []
 
-        items = booking.items.all()
+        from .models import MaterialOrder
 
-        product_total = sum([
-            item.get_total_price()
-            for item in items
-            if item.approval_status == "APPROVED"
-        ])
+        # 1. First trigger auto-rejections across all MaterialOrders for this booking
+        for order in MaterialOrder.objects.filter(booking=booking, status='REQUESTED'):
+            order.check_auto_reject()
 
-        total = booking.service_charge_at_booking + product_total
+        # 2. Build grouped data
+        orders_map = {}
+        unassigned_items = []
+
+        all_items = booking.items.all()
+        for item in all_items:
+            if item.approval_status == "APPROVED":
+                product_total += item.quantity * item.product_price
+
+            product_image = None
+            if item.product and item.product.image:
+                product_image = item.product.image.url
+            elif item.product_image:
+                product_image = item.product_image
+
+            item_data = {
+                "id": item.product.id if item.product else None,
+                "name": item.product.name if item.product else item.product_name,
+                "image": product_image,
+                "price": item.product_price,
+                "quantity": item.quantity,
+                "item_total": item.quantity * item.product_price,
+                "customer_approval": item.approval_status
+            }
+
+            if item.approval_status == "APPROVED" and item.product:
+                vendor_order = MaterialOrder.objects.filter(
+                    booking=booking,
+                    vendor=item.product.vendor
+                ).first()
+                if vendor_order:
+                    if vendor_order.id not in orders_map:
+                        orders_map[vendor_order.id] = {
+                            "order_id": vendor_order.id,
+                            "tracking_code": vendor_order.tracking_code,
+                            "vendor_name": vendor_order.vendor.business_name,
+                            "status": vendor_order.status,
+                            "created_at": vendor_order.created_at,
+                            "items": []
+                        }
+                    orders_map[vendor_order.id]["items"].append(item_data)
+                else:
+                    item_data["vendor_status"] = "WAITING_FOR_VENDOR_SUBMISSION"
+                    unassigned_items.append(item_data)
+            else:
+                if item.approval_status == "PENDING":
+                    item_data["vendor_status"] = "PENDING_CUSTOMER_APPROVAL"
+                elif item.approval_status == "AUTO_REJECTED":
+                    item_data["vendor_status"] = "AUTO_REJECTED"
+                else:
+                    item_data["vendor_status"] = "REJECTED"
+                unassigned_items.append(item_data)
+
+        # Merge orders array
+        vendor_orders = list(orders_map.values())
+
+        total = (
+            booking.service_charge +
+            booking.platform_fee +
+            product_total
+        )
 
         return Response({
-            "booking_id": booking.id,
-            "service_charge": booking.service_charge_at_booking,
+            "status": True,
+            "service_type": booking.service_type,
+            "service_charge": booking.service_charge,
+            "platform_fee": booking.platform_fee,
             "product_total": product_total,
-            "total_amount": total,
-
-            "items": [
-                {
-                    "item_id": item.id,
-                    "product_name": item.product_name,
-                    "product_price": item.product_price,
-                    "product_image": item.product_image,
-                    "quantity": item.quantity,
-                    "total_price": item.get_total_price(),
-                    "status": item.approval_status   # ✅ shows PENDING
-                }
-                for item in items
-            ]
+            "total": total,
+            "vendor_orders": vendor_orders,
+            "unassigned_items": unassigned_items
         })
-    
 
 # =========================================
 # 🔹 4. CUSTOMER APPROVES PRODUCTS
@@ -5316,7 +5216,7 @@ class AddProductAndServiceChargeAPI(APIView):
 
             item.save()
 
-        booking.service_charge_at_booking = service_charge
+        booking.service_charge = service_charge
         booking.status = "ONGOING"
         booking.save()
 
@@ -5450,7 +5350,7 @@ class UpdateProductAndServiceChargeAPI(APIView):
         # 7. UPDATE SERVICE CHARGE
         # =========================
         if service_charge is not None:
-            booking.service_charge_at_booking = service_charge
+            booking.service_charge = service_charge
 
         booking.save()
 
@@ -5462,205 +5362,96 @@ class UpdateProductAndServiceChargeAPI(APIView):
             "booking_id": booking.id,
             "product": product.name,
             "quantity": quantity,
-            "service_charge": booking.service_charge_at_booking,
+            "service_charge": booking.service_charge,
             "status": booking.status
         })        
 
 
 
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+payment_intent_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        "amount": openapi.Schema(type=openapi.TYPE_NUMBER, example=500),
+    },
+)
 
 class CreatePaymentIntentAPI(APIView):
-    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Create Payment Intent",
-        operation_description="Create Stripe payment for booking",
-        security=[{"Bearer": []}],
-        tags=["Payment"]
+        operation_description="Create Stripe Payment Intent",
+        request_body=payment_intent_schema,
+        responses={200: "Payment Intent Created"}
     )
     def post(self, request, booking_id):
 
-        # =========================
-        # 1. ROLE CHECK
-        # =========================
-        if request.user.role != "CUSTOMER":
-            return Response({"error": "Only customer can pay"}, status=403)
-
-        # =========================
-        # 2. GET BOOKING
-        # =========================
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        if booking.customer.user != request.user:
-            return Response({"error": "Unauthorized"}, status=403)
-
-        # =========================
-        # 3. VALIDATION
-        # =========================
-        if booking.status != "PENDING_PAYMENT":
-            return Response({"error": "Invalid booking state"}, status=400)
-
-        if booking.payment_status == "PAID":
-            return Response({"error": "Booking already paid"}, status=400)
-
-        if booking.total_cost <= 0:
-            return Response({"error": "Invalid booking amount"}, status=400)
-
-        # =========================
-        # 4. STRIPE AMOUNT
-        # =========================
-        amount = int(booking.total_cost * 100)  # INR → paise
-
         try:
+            # YOUR EXISTING LOGIC HERE
+            booking = Booking.objects.get(id=booking_id)
+
+            amount = request.data.get("amount", booking.total_cost)
+
             intent = stripe.PaymentIntent.create(
-                amount=amount,
+                amount=int(amount * 100),
                 currency="inr",
-                metadata={
-                    "booking_id": str(booking.id),
-                    "customer_id": str(request.user.id)
-                }
+                metadata={"booking_id": booking.id},
+                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
+                payment_method="pm_card_visa",
+                confirm=True,
+                automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
             )
-        except Exception as e:
+
             return Response({
-                "error": "Stripe error",
-                "details": str(e)
-            }, status=500)
+                "client_secret": intent.client_secret,
+                "payment_intent_id": intent.id
+            })
 
-        # =========================
-        # 5. SAVE PAYMENT RECORD
-        # =========================
-        Payment.objects.create(
-            booking=booking,
-            customer=booking.customer,
-            amount=booking.total_cost,
-            status="PENDING",
-            gateway_order_id=intent.id
-        )
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
 
-        # =========================
-        # 6. RESPONSE
-        # =========================
-        return Response({
-            "client_secret": intent.client_secret,
-            "payment_intent_id": intent.id,
-            "amount": amount,
-            "currency": "INR",
-            "public_key": settings.STRIPE_PUBLIC_KEY
-        })
 
+verify_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=["payment_intent_id"],
+    properties={
+        "payment_intent_id": openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
 
 class VerifyStripePaymentAPI(APIView):
-    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Verify Stripe Payment (Swagger Test Mode)",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["payment_intent_id"],
-            properties={
-                "payment_intent_id": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example="pi_3Nxxxxxxx"
-                ),
-                "force_success": openapi.Schema(
-                    type=openapi.TYPE_BOOLEAN,
-                    example=True,
-                    description="FOR TESTING ONLY (Swagger)"
-                )
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Payment success",
-                examples={
-                    "application/json": {
-                        "message": "Payment successful",
-                        "booking_id": 65,
-                        "booking_status": "PENDING",
-                        "payment_status": "PAID"
-                    }
-                }
-            )
-        },
-        security=[{"Bearer": []}],
-        tags=["Payment"]
+        operation_description="Verify Stripe Payment",
+        request_body=verify_schema,
+        responses={200: "Payment Verified"}
     )
     def post(self, request, booking_id):
 
-        payment_intent_id = request.data.get("payment_intent_id")
-        force_success = request.data.get("force_success", False)
-
-        if not payment_intent_id:
-            return Response({"error": "payment_intent_id required"}, status=400)
-
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        if booking.customer.user != request.user:
-            return Response({"error": "Unauthorized"}, status=403)
-
-        # 🔥 FIXED QUERY (NO status filter)
-        payment = Payment.objects.filter(
-            booking=booking,
-            gateway_order_id=payment_intent_id
-        ).first()
-
-        if not payment:
-            return Response({"error": "Payment not found"}, status=404)
-
-        # =========================
-        # 🔥 SWAGGER FORCE MODE
-        # =========================
-        if force_success:
-
-            payment.status = "PAID"
-            payment.gateway_payment_id = payment_intent_id
-            payment.paid_at = timezone.now()
-            payment.save()
-
-            booking.payment_status = "PAID"
-            booking.status = "PENDING"
-            booking.save()
-
-            return Response({
-                "message": "Payment successful (TEST MODE)",
-                "booking_id": booking.id,
-                "booking_status": booking.status,
-                "payment_status": booking.payment_status
-            })
-
-        # =========================
-        # REAL STRIPE VERIFY
-        # =========================
         try:
-            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            intent_id = request.data.get("payment_intent_id")
+            if intent_id and "_secret_" in intent_id:
+                intent_id = intent_id.split("_secret_")[0]
+
+            intent = stripe.PaymentIntent.retrieve(intent_id)
+
+            if intent.status == "succeeded":
+                booking = Booking.objects.get(id=booking_id)
+                booking.payment_status = "PAID"
+                booking.save()
+
+                return Response({"message": "Payment successful"})
+
+            return Response({"message": "Payment not completed"}, status=400)
+
         except Exception as e:
-            return Response({
-                "error": "Stripe error",
-                "details": str(e)
-            }, status=500)
+            return Response({"error": str(e)}, status=400)
 
-        if intent.status == "succeeded":
 
-            payment.status = "PAID"
-            payment.gateway_payment_id = payment_intent_id
-            payment.paid_at = timezone.now()
-            payment.save()
-
-            booking.payment_status = "PAID"
-            booking.status = "PENDING"
-            booking.save()
-
-            return Response({
-                "message": "Payment successful",
-                "booking_id": booking.id,
-                "booking_status": booking.status,
-                "payment_status": booking.payment_status
-            })
-
-        return Response({
-            "error": "Payment not completed",
-            "stripe_status": intent.status
-        }, status=400)        
 
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -5866,6 +5657,7 @@ class VendorTrackingAPI(APIView):
                 min_distance = dist
                 nearest_vendor = {
                     "order_id": order.id,
+                    "tracking_code": order.tracking_code,
                     "vendor_id": vendor.user.id,
                     "vendor_name": vendor.business_name,
                     "vendor_lat": vendor.store_lat,
@@ -5886,7 +5678,7 @@ class MarkVendorCollectedAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Mark Vendor Items as Collected",
+        operation_summary="Mark Vendor Items as Collected by Vendor",
         manual_parameters=[
             openapi.Parameter(
                 'order_id',
@@ -5896,18 +5688,28 @@ class MarkVendorCollectedAPI(APIView):
                 required=True
             )
         ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'tracking_code': openapi.Schema(type=openapi.TYPE_STRING, description="Tracking Code")
+            }
+        ),
         tags=["Vendor Tracking"]
     )
     def patch(self, request, order_id):
 
-        if request.user.role != "SERVICEMAN":
-            return Response({"error": "Only serviceman allowed"}, status=403)
+        if request.user.role != "VENDOR":
+            return Response({"error": "Only vendor allowed to scan code"}, status=403)
 
-        order = get_object_or_404(MaterialOrder, id=order_id)
+        tracking_code = request.data.get('tracking_code')
+        order = get_object_or_404(MaterialOrder, id=order_id, vendor__user=request.user)
 
-        if order.status != "VENDOR_ACCEPTED":
+        if tracking_code and tracking_code != order.tracking_code:
+            return Response({"error": "Invalid tracking code"}, status=400)
+
+        if order.status not in ["VENDOR_ACCEPTED", "DELIVERED"]:
             return Response({
-                "error": "Order not accepted"
+                "error": "Order not ready for pickup"
             }, status=400)
 
         if order.is_collected:
@@ -5916,6 +5718,7 @@ class MarkVendorCollectedAPI(APIView):
             })
 
         order.is_collected = True
+        order.status = "COLLECTED"
         order.save()
 
         return Response({
@@ -5991,7 +5794,7 @@ class AddProductAndServiceAPI(APIView):
 
         # ✅ UPDATE SERVICE TYPE
         booking.service_type = "Visiting+Service"
-        booking.service_charge_at_booking = service_charge
+        booking.service_charge = service_charge
         booking.save()
 
         return Response({
@@ -6037,6 +5840,9 @@ class ApproveBookingItemsAPI(APIView):
 
         if status_value == "REJECTED":
             return Response({"message": "Items rejected"})
+
+        # 🔥 UPDATE SERVICE TYPE (If items approved, it becomes VISITING_SERVICE)
+        booking.save() 
 
         # ✅ CREATE MATERIAL ORDER
         approved_items = booking.items.filter(
@@ -6174,3 +5980,228 @@ class VendorOrdersView(APIView):
             "status": True,
             "data": serializer.data
         })
+
+
+import razorpay
+import stripe
+from django.conf import settings
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+from .models import Payment, Booking
+from .utils import create_payment
+
+# Stripe config
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+# ==============================
+# 🔥 COMMON INPUT SCHEMA
+# ==============================
+payment_request_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=["booking_id", "payment_type", "gateway"],
+    properties={
+        "booking_id": openapi.Schema(type=openapi.TYPE_INTEGER),
+        "payment_type": openapi.Schema(
+            type=openapi.TYPE_STRING,
+            enum=["VISITING", "FINAL"]
+        ),
+        "gateway": openapi.Schema(
+            type=openapi.TYPE_STRING,
+            enum=["RAZORPAY", "STRIPE"]
+        ),
+    },
+)
+
+# ==============================
+# 🔥 CREATE PAYMENT (COMMON)
+# ==============================
+@swagger_auto_schema(
+    method='post',
+    request_body=payment_request_schema,
+    responses={200: "Payment Created"}
+)
+@api_view(['POST'])
+def create_payment_view(request):
+    try:
+        booking_id = request.data.get("booking_id")
+        payment_type = request.data.get("payment_type")
+        gateway = request.data.get("gateway")
+
+        booking = Booking.objects.get(id=booking_id)
+
+        payment, gateway_data = create_payment(
+            booking=booking,
+            payment_type=payment_type,
+            gateway=gateway
+        )
+
+        if not payment:
+            return Response({"error": gateway_data if gateway_data else "Payment creation failed"}, status=400)
+
+        # Razorpay response
+        if gateway == "RAZORPAY":
+            return Response({
+                "payment_id": payment.id,
+                "gateway": "RAZORPAY",
+                "order_id": gateway_data["id"],
+                "amount": payment.amount,
+                "currency": "INR",
+                "platform_fee": booking.platform_fee
+            })
+
+        # Stripe response
+        elif gateway == "STRIPE":
+            return Response({
+                "payment_id": payment.id,
+                "gateway": "STRIPE",
+                "client_secret": gateway_data.client_secret,
+                "amount": payment.amount,
+                "platform_fee": booking.platform_fee
+            })
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
+
+
+# ==============================
+# 🔥 VERIFY RAZORPAY
+# ==============================
+razorpay_verify_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"],
+    properties={
+        "razorpay_order_id": openapi.Schema(type=openapi.TYPE_STRING),
+        "razorpay_payment_id": openapi.Schema(type=openapi.TYPE_STRING),
+        "razorpay_signature": openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
+
+@swagger_auto_schema(
+    method='post',
+    request_body=razorpay_verify_schema,
+    responses={200: "Payment Verified"}
+)
+@api_view(['POST'])
+def verify_razorpay_payment(request):
+    try:
+        order_id = request.data.get("razorpay_order_id")
+        payment_id = request.data.get("razorpay_payment_id")
+        signature = request.data.get("razorpay_signature")
+
+        client = razorpay.Client(
+            auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+        )
+
+        if "mock" not in order_id:
+            client.utility.verify_payment_signature({
+                "razorpay_order_id": order_id,
+                "razorpay_payment_id": payment_id,
+                "razorpay_signature": signature
+            })
+        else:
+            # 🔥 BYPASS signature check for mock testing
+            pass
+
+        payment = Payment.objects.get(gateway_order_id=order_id)
+
+        payment.gateway_payment_id = payment_id
+        payment.gateway_signature = signature
+        payment.status = "PAID"
+        payment.save()
+
+        return Response({"message": "Razorpay payment successful"})
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+
+# ==============================
+# 🔥 VERIFY STRIPE
+# ==============================
+stripe_verify_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=["payment_intent_id"],
+    properties={
+        "payment_intent_id": openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
+
+@swagger_auto_schema(
+    method='post',
+    request_body=stripe_verify_schema,
+    responses={200: "Payment Verified"}
+)
+@api_view(['POST'])
+def verify_stripe_payment(request):
+    try:
+        intent_id = request.data.get("payment_intent_id")
+
+        if intent_id and "_secret_" in intent_id:
+            intent_id = intent_id.split("_secret_")[0]
+
+        intent = stripe.PaymentIntent.retrieve(intent_id)
+
+        payment = Payment.objects.get(gateway_order_id=intent_id)
+
+        if intent.status == "succeeded":
+            payment.status = "PAID"
+        else:
+            payment.status = "FAILED"
+
+        payment.save()
+
+        return Response({"message": "Stripe payment verified"})
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+
+class ServicemanCompleteBookingAPI(APIView):
+    """
+    Serviceman marks a booking as completed.
+    """
+    permission_classes = [IsAuthenticated, IsServiceman]
+
+    @swagger_auto_schema(
+        operation_summary="Mark booking as completed by serviceman",
+        operation_description="Serviceman confirms the service is finished. Status becomes COMPLETED and payment status Paid.",
+        responses={200: "Success"}
+    )
+    def post(self, request, booking_id):
+        booking = get_object_or_404(Booking, id=booking_id)
+
+        if booking.status in ["COMPLETED", "CANCELLED"]:
+            return Response({"error": "Booking is already completed or cancelled"}, status=400)
+
+        booking.status = "COMPLETED"
+        booking.payment_status = "PAID"
+        booking.save()
+
+        return Response({"message": "Booking completed successfully", "status": booking.status})
+
+
+class CustomerBookingHistoryAPI(ListAPIView):
+    """
+    Get all bookings (including cancelled) for the logged-in customer.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = BookingHistorySerializer
+
+    def get_queryset(self):
+        return Booking.objects.filter(customer__user=self.request.user).order_by("-created_at")
+
+class ServicemanBookingHistoryAPI(ListAPIView):
+    """
+    Get all bookings (including cancelled) for the logged-in serviceman.
+    """
+    permission_classes = [IsAuthenticated, IsServiceman]
+    serializer_class = BookingHistorySerializer
+
+    def get_queryset(self):
+        return Booking.objects.filter(serviceman__user=self.request.user).order_by("-created_at")
+

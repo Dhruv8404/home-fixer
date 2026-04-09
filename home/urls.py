@@ -6,6 +6,7 @@ from .views import (
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
     CreatePaymentIntentAPI,
+    CustomerBookingHistoryAPI,
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
@@ -17,6 +18,8 @@ from .views import (
     RegisterVerifyOTPAPI,
     RegisterCompleteAPI,
     ServicemanBookingActionAPI,
+    ServicemanCompleteBookingAPI,
+    ServicemanBookingHistoryAPI,
     ServicemanLocationUpdateAPI,
     ServicemanProfileUpdateAPI,
     UpdateProductAndServiceChargeAPI,
@@ -55,8 +58,8 @@ from .admin_views import (
 urlpatterns = [
 
     # ================= AUTH =================
-    path("login/", EmailPasswordLoginAPI.as_view()),
-    path("auth/logout/", LogoutAPI.as_view()),
+    path("login/", EmailPasswordLoginAPI.as_view(), name="login"),
+    path("auth/logout/", LogoutAPI.as_view(), name="logout"),
 
     path("auth/login/send-otp/", LoginSendOTPAPI.as_view()),
     path("auth/login/verify-otp/", LoginVerifyOTPAPI.as_view()),
@@ -112,23 +115,26 @@ urlpatterns = [
     path("products/<int:pk>/update/", ProductUpdateAPI.as_view()),
     path("products/<int:pk>/delete/", ProductDeleteAPI.as_view()),
 
-    path("products/nearby/", views.NearbyProductAPI.as_view(), name="nearby-products"),
-
+    path("products/nearby/", views.NearbyProductAPI.as_view()),
     path("product-categories/", views.ProductCategoryAPI.as_view()),
     path("product-categories/<int:pk>/delete/", views.ProductCategoryDeleteAPI.as_view()),
 
 
     # ================= BOOKING =================
-    path("booking/create/", views.BookingCreateAPIView.as_view(), name="booking-create"),
+    path("booking/create/", views.BookingCreateAPIView.as_view()),
 
     path("booking/<int:booking_id>/cancel/", CustomerCancelBookingAPI.as_view()),
     path("booking/<int:booking_id>/details/", BookingDetailAPIView.as_view()),
     path("booking/<int:booking_id>/summary/", views.BookingSummaryAPI.as_view()),
+    path("bookings/history/", CustomerBookingHistoryAPI.as_view()),
 
     path("booking/<int:booking_id>/action/", ServicemanBookingActionAPI.as_view()),
     path("bookings/<int:booking_id>/track/", BookingTrackingAPI.as_view()),
 
     path("serviceman/bookings/", views.ServicemanBookingRequestsAPI.as_view()),
+    path("serviceman/bookings/history/", ServicemanBookingHistoryAPI.as_view()),
+    path("serviceman/booking/<int:booking_id>/complete/", ServicemanCompleteBookingAPI.as_view()),
+
 
 
     # ================= BOOKING PRODUCT FLOW =================
@@ -139,8 +145,9 @@ urlpatterns = [
 
     # ================= PAYMENT =================
     path("booking/<int:booking_id>/payment/", views.BookingPaymentDetailAPI.as_view()),
-    path("booking/<int:booking_id>/payment/create-intent/", CreatePaymentIntentAPI.as_view()),
-    path("booking/<int:booking_id>/payment/verify/", VerifyStripePaymentAPI.as_view()),
+    path("payment/create/", views.create_payment_view),
+    path("payment/verify/stripe/", views.verify_stripe_payment),
+    path("payment/verify/razorpay/", views.verify_razorpay_payment),
 
 
     # ================= VENDOR =================

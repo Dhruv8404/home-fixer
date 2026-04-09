@@ -12,3 +12,7 @@ class IsAdminOrCustomer(BasePermission):
             and request.user.is_authenticated
             and request.user.role in ["ADMIN", "CUSTOMER"]
         )
+class IsServiceman(BasePermission):
+    """Allow only users with role 'SERVICEMAN'."""
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.role == "SERVICEMAN"
