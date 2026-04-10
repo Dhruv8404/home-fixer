@@ -34,8 +34,10 @@ EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "").replace(" ", "")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+OTP_PRINT_IN_TERMINAL = os.getenv("OTP_PRINT_IN_TERMINAL", "False") == "True"
+EMAIL_TIMEOUT = 10  # seconds
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -56,12 +58,11 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-ALLOWED_HOSTS = os.getenv(
-    "ALLOWED_HOSTS",
-    "home-fixer-api.onrender.com"
-).split(",")
-
-
+ALLOWED_HOSTS = [
+    "home-fixer-production.up.railway.app",
+    "localhost",
+    "127.0.0.1",
+]
 
 # Application definition
 
@@ -247,6 +248,7 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'PERSIST_AUTH': True,   # 🔥 REQUIRED
     'REFETCH_SCHEMA_WITH_AUTH': True,
+     'DEFAULT_API_URL': 'https://home-fixer-production.up.railway.app',
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',

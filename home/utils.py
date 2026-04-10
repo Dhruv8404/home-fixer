@@ -47,6 +47,20 @@ def send_email_otp(email):
         EmailOTP.objects.create(email=email, otp=otp)
 
     print(f"📧 Email: {email} | OTP: {otp}")
+    
+    if not settings.OTP_PRINT_IN_TERMINAL:
+        try:
+            send_mail(
+                subject='Your HomeFixer OTP',
+                message=f'Your OTP is: {otp}. Valid for 5 minutes.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            print(f"✅ Email sent to {email}")
+        except Exception as e:
+            print(f"❌ Email failed for {email}: {str(e)}")
+    
     return otp
 
 
