@@ -19,3 +19,4 @@ razorpay
 celery
 redis
 flower
+resend

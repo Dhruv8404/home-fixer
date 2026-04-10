@@ -59,7 +59,25 @@ def send_email_otp(email):
             )
             print(f"✅ Email sent to {email}")
         except Exception as e:
-            print(f"❌ Email failed for {email}: {str(e)}")
+            print(f"❌ SMTP failed for {email}: {str(e)}")
+            
+            # 🔥 RESEND FALLBACK (Railway-friendly)
+            resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+            if resend_api_key:
+                try:
+                    import resend
+                    resend.api_key = resend_api_key
+                    resend.Emails.send({
+                        "from": settings.DEFAULT_FROM_EMAIL or "noreply@homefixer.app",
+                        "to": [email],
+                        "subject": "Your HomeFixer OTP",
+                        "html": f"<h2>Your OTP: <strong>{otp}</strong></h2><p>Valid for 5 minutes.</p>"
+                    })
+                    print(f"✅ Resend delivered to {email}")
+                except Exception as resend_e:
+                    print(f"❌ Resend also failed: {str(resend_e)}")
+            else:
+                print("ℹ️ Set RESEND_API_KEY for Railway emails")
     
     return otp
 

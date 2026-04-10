@@ -1,9 +1,9 @@
 # OTP Email Fix - Progress Tracker
 
 ## Plan Steps:
-- [x] 1. Update home/utils.py - conditional email/send
-- [ ] 2. Test local: OTP_PRINT_IN_TERMINAL=True (prints)
-- [ ] 3. Test Railway: Set EMAIL_* env vars + flag=False (real emails)
+- [x] 1. Update home/utils.py - conditional email/send  
+- [x] 2. Add Resend fallback (Railway SMTP fix)
+- [ ] 3. Test Railway: RESEND_API_KEY=...
 - [ ] 4. Complete ✅
 
 **Current: Starting Step 1**
