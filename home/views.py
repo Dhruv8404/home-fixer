@@ -5397,14 +5397,14 @@ class CreatePaymentIntentAPI(APIView):
             amount = request.data.get("amount", booking.total_cost)
 
             intent = stripe.PaymentIntent.create(
-                amount=int(amount * 100),
-                currency="inr",
-                metadata={"booking_id": booking.id},
-                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
-                payment_method="pm_card_visa",
-                confirm=True,
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
-            )
+    amount=int(float(amount) * 100),
+    currency="inr",
+    metadata={
+        "booking_id": booking.id,
+        "payment_type": payment_type
+    },
+    automatic_payment_methods={"enabled": True}
+)
 
             return Response({
                 "client_secret": intent.client_secret,
@@ -5978,7 +5978,8 @@ class VendorOrdersView(APIView):
 
         return Response({
             "status": True,
-            "data": serializer.data
+            "data": serializer.data,
+            "serviceman_name": vendor.user.servicemanprofile.user.name if hasattr(vendor.user, 'servicemanprofile') else "N/A"
         })
 
 
@@ -6204,4 +6205,4 @@ class ServicemanBookingHistoryAPI(ListAPIView):
 
     def get_queryset(self):
         return Booking.objects.filter(serviceman__user=self.request.user).order_by("-created_at")
-
+
