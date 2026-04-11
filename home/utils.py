@@ -48,36 +48,35 @@ def send_email_otp(email):
 
     print(f"📧 Email: {email} | OTP: {otp}")
     
-    if not settings.OTP_PRINT_IN_TERMINAL:
-        try:
-            send_mail(
-                subject='Your HomeFixer OTP',
-                message=f'Your OTP is: {otp}. Valid for 5 minutes.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-            print(f"✅ Email sent to {email}")
-        except Exception as e:
-            print(f"❌ SMTP failed for {email}: {str(e)}")
-            
-            # 🔥 RESEND FALLBACK (Railway-friendly)
-            resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
-            if resend_api_key:
-                try:
-                    import resend
-                    resend.api_key = resend_api_key
-                    resend.Emails.send({
-                        "from": settings.DEFAULT_FROM_EMAIL or "noreply@homefixer.app",
-                        "to": [email],
-                        "subject": "Your HomeFixer OTP",
-                        "html": f"<h2>Your OTP: <strong>{otp}</strong></h2><p>Valid for 5 minutes.</p>"
-                    })
-                    print(f"✅ Resend delivered to {email}")
-                except Exception as resend_e:
-                    print(f"❌ Resend also failed: {str(resend_e)}")
-            else:
-                print("ℹ️ Set RESEND_API_KEY for Railway emails")
+    try:
+        send_mail(
+            subject=f'Your HomeFixer OTP: {otp}',
+            message=f'Your OTP is: {otp}. Valid for 5 minutes.',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
+        )
+        print(f"✅ Email sent to {email}")
+    except Exception as e:
+        print(f"❌ SMTP failed for {email}: {str(e)}")
+        
+        # 🔥 RESEND FALLBACK (Railway-friendly)
+        resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+        if resend_api_key:
+            try:
+                import resend
+                resend.api_key = resend_api_key
+                resend.Emails.send({
+                    "from": settings.DEFAULT_FROM_EMAIL or "noreply@homefixer.app",
+                    "to": [email],
+                    "subject": f"Your HomeFixer OTP: {otp}",
+                    "html": f"<h2>Your OTP: <strong>{otp}</strong></h2><p>Valid for 5 minutes.</p>"
+                })
+                print(f"✅ Resend delivered to {email}")
+            except Exception as resend_e:
+                print(f"❌ Resend also failed: {str(resend_e)}")
+        else:
+            print("ℹ️ Set RESEND_API_KEY for Railway emails")
     
     return otp
 

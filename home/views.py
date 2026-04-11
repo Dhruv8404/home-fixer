@@ -5397,14 +5397,14 @@ class CreatePaymentIntentAPI(APIView):
             amount = request.data.get("amount", booking.total_cost)
 
             intent = stripe.PaymentIntent.create(
-    amount=int(float(amount) * 100),
-    currency="inr",
-    metadata={
-        "booking_id": booking.id,
-        "payment_type": payment_type
-    },
-    automatic_payment_methods={"enabled": True}
-)
+                amount=int(amount * 100),
+                currency="inr",
+                metadata={"booking_id": booking.id},
+                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
+                payment_method="pm_card_visa",
+                confirm=True,
+                automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
+            )
 
             return Response({
                 "client_secret": intent.client_secret,
