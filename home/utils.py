@@ -46,6 +46,7 @@ def send_email_otp(email):
         otp = generate_otp()
         EmailOTP.objects.create(email=email, otp=otp)
 
+    import requests
     print(f"📧 Email: {email} | OTP: {otp}")
     
     try:
@@ -57,28 +58,43 @@ def send_email_otp(email):
             fail_silently=False,
         )
         print(f"✅ Email sent to {email}")
+        return {"success": True, "otp": otp}
     except Exception as e:
         print(f"❌ SMTP failed for {email}: {str(e)}")
         
-        # 🔥 RESEND FALLBACK (Railway-friendly)
+        # Fallback Resend via requests
         resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+        print("RESEND:", resend_api_key)
         if resend_api_key:
             try:
-                import resend
-                resend.api_key = resend_api_key
-                resend.Emails.send({
-                    "from": settings.DEFAULT_FROM_EMAIL or "noreply@homefixer.app",
-                    "to": [email],
-                    "subject": f"Your HomeFixer OTP: {otp}",
-                    "html": f"<h2>Your OTP: <strong>{otp}</strong></h2><p>Valid for 5 minutes.</p>"
-                })
-                print(f"✅ Resend delivered to {email}")
+                response = requests.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "from": "onboarding@resend.dev",
+                        "to": [email],
+                        "subject": "Your OTP Code",
+                        "html": f"<strong>Your OTP is {otp}</strong>"
+                    }
+                )
+                if response.status_code in [200, 201]:
+                    print(f"✅ Resend delivered to {email}")
+                    return {"success": True, "otp": otp}
+                else:
+                    err_msg = f"Resend API error: {response.text}"
+                    print(err_msg)
+                    return {"success": False, "error": err_msg}
             except Exception as resend_e:
-                print(f"❌ Resend also failed: {str(resend_e)}")
+                err_msg = f"Resend request failed: {str(resend_e)}"
+                print(err_msg)
+                return {"success": False, "error": err_msg}
         else:
+            err_msg = "SMTP failed and RESEND_API_KEY is not set"
             print("ℹ️ Set RESEND_API_KEY for Railway emails")
-    
-    return otp
+            return {"success": False, "error": err_msg}
 
 
 def verify_email_otp(email, otp):
