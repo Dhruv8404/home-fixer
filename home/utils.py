@@ -1,7 +1,8 @@
 import random
+import requests
 from datetime import timedelta
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.utils import timezone
 import logging
 from math import radians, cos, sin, asin, sqrt
@@ -30,7 +31,37 @@ def generate_otp():
     return str(random.randint(100000, 999999))
 
 
+def _build_otp_html(otp):
+    """Returns a styled HTML email body for the OTP."""
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
+      <div style="background:#1a73e8;padding:24px;text-align:center">
+        <h1 style="color:#fff;margin:0;font-size:24px">HomeFixer</h1>
+      </div>
+      <div style="padding:32px;text-align:center">
+        <p style="color:#374151;font-size:16px;margin-bottom:8px">Your One-Time Password is:</p>
+        <div style="background:#f3f4f6;border-radius:8px;padding:20px;display:inline-block;margin:16px 0">
+          <span style="font-size:36px;font-weight:700;letter-spacing:8px;color:#1a73e8">{otp}</span>
+        </div>
+        <p style="color:#6b7280;font-size:14px">This OTP is valid for <strong>5 minutes</strong>. Do not share it with anyone.</p>
+      </div>
+      <div style="background:#f9fafb;padding:16px;text-align:center">
+        <p style="color:#9ca3af;font-size:12px;margin:0">If you didn't request this, please ignore this email.</p>
+      </div>
+    </div>
+    """
+
+
 def send_email_otp(email):
+    """
+    Generates (or reuses) an OTP for the given email and delivers it.
+
+    Delivery order (controlled by USE_RESEND_FIRST env var):
+      - USE_RESEND_FIRST=True  → Resend API first, then SMTP fallback  (Railway/production)
+      - USE_RESEND_FIRST=False → Gmail SMTP first, then Resend fallback (local dev)
+
+    Returns: {"success": bool, "error": str (only on failure)}
+    """
     now = timezone.now()
     expiry_time = now - timedelta(minutes=OTP_EXPIRY_MINUTES)
 
@@ -41,60 +72,108 @@ def send_email_otp(email):
 
     if existing_otp:
         otp = existing_otp.otp
+        logger.info(f"♻️  Reusing existing OTP for {email}")
     else:
         EmailOTP.objects.filter(email=email).delete()
         otp = generate_otp()
         EmailOTP.objects.create(email=email, otp=otp)
+        logger.info(f"🆕 New OTP created for {email}")
 
-    import requests
-    print(f"📧 Email: {email} | OTP: {otp}")
-    
+    logger.info(f"📧 Attempting OTP delivery → {email}")
+    print(f"📧 OTP for {email}: {otp}")  # always visible in logs
+
+    html_body = _build_otp_html(otp)
+    plain_body = f"Your HomeFixer OTP is: {otp}\nThis OTP is valid for 5 minutes. Do not share it with anyone."
+
+    use_resend_first = getattr(settings, 'USE_RESEND_FIRST', False)
+
+    if use_resend_first:
+        print("🔀 Production mode: trying Resend first")
+        result = _try_resend(email, otp, html_body, plain_body)
+        if result["success"]:
+            return result
+        print("⬇️  Resend failed, falling back to SMTP")
+        return _try_smtp(email, otp, html_body, plain_body)
+    else:
+        print("🔀 Local mode: trying Gmail SMTP first")
+        result = _try_smtp(email, otp, html_body, plain_body)
+        if result["success"]:
+            return result
+        print("⬇️  SMTP failed, falling back to Resend")
+        return _try_resend(email, otp, html_body, plain_body)
+
+
+def _try_smtp(email, otp, html_body, plain_body):
+    """Attempt delivery via Django's configured SMTP backend."""
+    smtp_host = getattr(settings, 'EMAIL_HOST', None)
+    smtp_user = getattr(settings, 'EMAIL_HOST_USER', None)
+    smtp_pass = getattr(settings, 'EMAIL_HOST_PASSWORD', None)
+
+    if not (smtp_host and smtp_user and smtp_pass):
+        msg = f"⚠️  SMTP not configured (host={smtp_host}, user={'set' if smtp_user else 'MISSING'}, pass={'set' if smtp_pass else 'MISSING'})"
+        logger.warning(msg)
+        print(msg)
+        return {"success": False, "error": "SMTP credentials not configured"}
+
     try:
-        send_mail(
-            subject=f'Your HomeFixer OTP: {otp}',
-            message=f'Your OTP is: {otp}. Valid for 5 minutes.',
+        msg = EmailMultiAlternatives(
+            subject="Your HomeFixer OTP",
+            body=plain_body,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
+            to=[email],
         )
-        print(f"✅ Email sent to {email}")
-        return {"success": True, "otp": otp}
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=False)
+        logger.info(f"✅ SMTP delivered OTP to {email}")
+        print(f"✅ Email sent via SMTP to {email}")
+        return {"success": True}
     except Exception as e:
-        print(f"❌ SMTP failed for {email}: {str(e)}")
-        
-        # Fallback Resend via requests
-        resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
-        print("RESEND:", resend_api_key)
-        if resend_api_key:
-            try:
-                response = requests.post(
-                    "https://api.resend.com/emails",
-                    headers={
-                        "Authorization": f"Bearer {resend_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "from": "onboarding@resend.dev",
-                        "to": [email],
-                        "subject": "Your OTP Code",
-                        "html": f"<strong>Your OTP is {otp}</strong>"
-                    }
-                )
-                if response.status_code in [200, 201]:
-                    print(f"✅ Resend delivered to {email}")
-                    return {"success": True, "otp": otp}
-                else:
-                    err_msg = f"Resend API error: {response.text}"
-                    print(err_msg)
-                    return {"success": False, "error": err_msg}
-            except Exception as resend_e:
-                err_msg = f"Resend request failed: {str(resend_e)}"
-                print(err_msg)
-                return {"success": False, "error": err_msg}
+        logger.error(f"❌ SMTP failed for {email}: {e}")
+        print(f"❌ SMTP error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def _try_resend(email, otp, html_body, plain_body):
+    """Attempt delivery via Resend HTTP API."""
+    resend_api_key = getattr(settings, 'RESEND_API_KEY', None)
+    resend_from = getattr(settings, 'RESEND_FROM_EMAIL', 'onboarding@resend.dev')
+
+    if not resend_api_key:
+        msg = "⚠️  RESEND_API_KEY not set — cannot use Resend"
+        logger.warning(msg)
+        print(msg)
+        return {"success": False, "error": "RESEND_API_KEY not configured"}
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": resend_from,
+                "to": [email],
+                "subject": "Your HomeFixer OTP",
+                "html": html_body,
+                "text": plain_body,
+            },
+            timeout=10,
+        )
+        if response.status_code in [200, 201]:
+            logger.info(f"✅ Resend delivered OTP to {email}")
+            print(f"✅ Resend delivered to {email}")
+            return {"success": True}
         else:
-            err_msg = "SMTP failed and RESEND_API_KEY is not set"
-            print("ℹ️ Set RESEND_API_KEY for Railway emails")
+            err_msg = f"Resend API error {response.status_code}: {response.text}"
+            logger.error(err_msg)
+            print(err_msg)
             return {"success": False, "error": err_msg}
+    except Exception as e:
+        err_msg = f"Resend request failed: {e}"
+        logger.error(err_msg)
+        print(err_msg)
+        return {"success": False, "error": err_msg}
 
 
 def verify_email_otp(email, otp):

@@ -120,7 +120,12 @@ class LoginSendOTPAPI(APIView):
                 status=404
             )
 
-        send_email_otp(email)
+        result = send_email_otp(email)
+        if not result.get("success"):
+            return Response(
+                {"detail": f"Failed to send OTP. Reason: {result.get('error', 'Unknown error')}"},
+                status=503
+            )
         return Response({"message": "OTP sent for login"})
 
 
@@ -187,7 +192,12 @@ class RegisterSendOTPAPI(APIView):
                 status=400
             )
 
-        send_email_otp(email)
+        result = send_email_otp(email)
+        if not result.get("success"):
+            return Response(
+                {"detail": f"Failed to send OTP. Reason: {result.get('error', 'Unknown error')}"},
+                status=503
+            )
         return Response({"message": "OTP sent for registration"})
 
 class RegisterVerifyOTPAPI(APIView):
