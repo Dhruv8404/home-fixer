@@ -5411,8 +5411,7 @@ class CreatePaymentIntentAPI(APIView):
                 currency="inr",
                 metadata={"booking_id": booking.id},
                 # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
-                payment_method="pm_card_visa",
-                confirm=True,
+                
                 automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
             )
 
