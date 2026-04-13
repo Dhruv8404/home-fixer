@@ -1095,7 +1095,7 @@ class NearbyVendorAPI(APIView):
 #=============Booking Creation API =============#
 from .serializers import BookingCreateSerializer, BookingDetailSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.decorators import action
+from rest_framework.decorators import action, permission_classes
 import cloudinary.uploader
 from decimal import Decimal
 
@@ -6041,48 +6041,40 @@ payment_request_schema = openapi.Schema(
     responses={200: "Payment Created"}
 )
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def create_payment_view(request):
+    booking_id = request.data.get("booking_id")
+    payment_type = request.data.get("payment_type")
+    gateway = request.data.get("gateway")
+
     try:
-        booking_id = request.data.get("booking_id")
-        payment_type = request.data.get("payment_type")
-        gateway = request.data.get("gateway")
-
         booking = Booking.objects.get(id=booking_id)
+    except Booking.DoesNotExist:
+        return Response({"error": "Invalid booking"}, status=400)
 
-        payment, gateway_data = create_payment(
-            booking=booking,
-            payment_type=payment_type,
-            gateway=gateway
-        )
+    payment, gateway_data = create_payment(
+        booking, payment_type, gateway
+    )
 
-        if not payment:
-            return Response({"error": gateway_data if gateway_data else "Payment creation failed"}, status=400)
+    if not payment:
+        return Response({"error": gateway_data}, status=400)
 
-        # Razorpay response
-        if gateway == "RAZORPAY":
-            return Response({
-                "payment_id": payment.id,
-                "gateway": "RAZORPAY",
-                "order_id": gateway_data["id"],
-                "amount": payment.amount,
-                "currency": "INR",
-                "platform_fee": booking.platform_fee
-            })
+    if gateway == "RAZORPAY":
+        return Response({
+            "payment_id": payment.id,
+            "gateway": "RAZORPAY",
+            "order_id": gateway_data["id"],
+            "amount": gateway_data["amount"],
+            "currency": gateway_data["currency"]
+        })
 
-        # Stripe response
-        elif gateway == "STRIPE":
-            return Response({
-                "payment_id": payment.id,
-                "gateway": "STRIPE",
-                "client_secret": gateway_data.client_secret,
-                "amount": payment.amount,
-                "platform_fee": booking.platform_fee
-            })
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
-
-
+    elif gateway == "STRIPE":
+        return Response({
+            "payment_id": payment.id,
+            "gateway": "STRIPE",
+            "client_secret": gateway_data["client_secret"],
+            "amount": payment.amount
+        })
 # ==============================
 # 🔥 VERIFY RAZORPAY
 # ==============================
