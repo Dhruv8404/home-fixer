@@ -5383,7 +5383,7 @@ from drf_yasg import openapi
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-
+from .views import CsrfExemptJWTAuthentication
 payment_intent_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -5392,6 +5392,8 @@ payment_intent_schema = openapi.Schema(
 )
 
 class CreatePaymentIntentAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [CsrfExemptJWTAuthentication]
 
     @swagger_auto_schema(
         operation_description="Create Stripe Payment Intent",
@@ -5434,7 +5436,9 @@ verify_schema = openapi.Schema(
 )
 
 class VerifyStripePaymentAPI(APIView):
-
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [CsrfExemptJWTAuthentication]
+    
     @swagger_auto_schema(
         operation_description="Verify Stripe Payment",
         request_body=verify_schema,
