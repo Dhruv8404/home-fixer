@@ -6042,6 +6042,9 @@ from rest_framework.response import Response
 from .authentication import CsrfExemptJWTAuthentication
 from .models import Booking
 from .utils import create_payment
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from .authentication import CsrfExemptJWTAuthentication
+from rest_framework.permissions import IsAuthenticated
 
 @swagger_auto_schema(
     method='post',
@@ -6051,11 +6054,12 @@ from .utils import create_payment
 
 
 
-@csrf_exempt
+
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 @authentication_classes([CsrfExemptJWTAuthentication])
-def create_payment_view(request):
+@permission_classes([IsAuthenticated])
+def create_payment_view(request, booking_id):
+    ...
     try:
         booking_id = request.data.get("booking_id")
         payment_type = request.data.get("payment_type")
