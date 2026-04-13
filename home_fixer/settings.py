@@ -236,7 +236,7 @@ REST_FRAMEWORK = {
                  "home.authentication.CsrfExemptJWTAuthentication", # Bearer support
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+    'rest_framework.permissions.AllowAny',
     ),
 }
 CSRF_TRUSTED_ORIGINS = [
