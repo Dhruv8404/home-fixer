@@ -1,7 +1,7 @@
 import profile
 from django.conf import settings
 from django.utils import timezone
-from rest_framework.views import APIView
+from rest_framework.views import APIView, csrf_exempt
 from rest_framework.generics import ListAPIView
 from django.conf import settings
 from datetime import timedelta
@@ -6035,11 +6035,6 @@ payment_request_schema = openapi.Schema(
 # ==============================
 # 🔥 CREATE PAYMENT (COMMON)
 # ==============================
-@swagger_auto_schema(
-    method='post',
-    request_body=payment_request_schema,
-    responses={200: "Payment Created"}
-)
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated
@@ -6047,6 +6042,13 @@ from rest_framework.response import Response
 from .authentication import CsrfExemptJWTAuthentication
 from .models import Booking
 from .utils import create_payment
+
+@swagger_auto_schema(
+    method='post',
+    request_body=payment_request_schema,
+    responses={200: "Payment Created"}
+)
+
 
 
 @csrf_exempt
