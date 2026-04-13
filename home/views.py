@@ -53,7 +53,7 @@ from django.contrib.auth import authenticate
 stripe.api_key = settings.STRIPE_SECRET_KEY
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for email/password login
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="Login with Email & Password",
@@ -104,7 +104,7 @@ class LogoutAPI(APIView):
 
 class LoginSendOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for sending OTP
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=SendOTPSerializer)
     def post(self, request):
@@ -132,8 +132,7 @@ class LoginSendOTPAPI(APIView):
 
 class LoginVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for OTP verification  
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(request_body=VerifyOTPSerializer)
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
@@ -161,8 +160,7 @@ class LoginVerifyOTPAPI(APIView):
 
 class RegisterSendOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for registration OTP
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
         operation_summary="Send Registration OTP",
         operation_description="Send OTP to email for new user registration",
@@ -202,7 +200,8 @@ class RegisterSendOTPAPI(APIView):
 
 class RegisterVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for OTP verification
+    permission_classes = [IsAuthenticated]
+
     @swagger_auto_schema(
         operation_summary="Verify Registration OTP",
         request_body=VerifyOTPSerializer,
@@ -228,7 +227,7 @@ class RegisterVerifyOTPAPI(APIView):
 
 class RegisterCompleteAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for completing registration
+    permission_classes = [IsAuthenticated]  # No authentication required for completing registration
     @swagger_auto_schema(request_body=CompleteRegisterSerializer)
     def post(self, request):
         serializer = CompleteRegisterSerializer(data=request.data)
@@ -2801,8 +2800,7 @@ from django.contrib.auth import authenticate
 stripe.api_key = settings.STRIPE_SECRET_KEY
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for email/password login
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
         operation_summary="Login with Email & Password",
         request_body=EmailPasswordLoginSerializer,
@@ -2852,8 +2850,7 @@ class LogoutAPI(APIView):
 
 class LoginSendOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for sending OTP
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(request_body=SendOTPSerializer)
     def post(self, request):
         serializer = SendOTPSerializer(data=request.data)
@@ -2875,8 +2872,7 @@ class LoginSendOTPAPI(APIView):
 
 class LoginVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for OTP verification  
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(request_body=VerifyOTPSerializer)
     def post(self, request):
         serializer = VerifyOTPSerializer(data=request.data)
@@ -2904,8 +2900,7 @@ class LoginVerifyOTPAPI(APIView):
 
 class RegisterSendOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for registration OTP
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
         operation_summary="Send Registration OTP",
         operation_description="Send OTP to email for new user registration",
@@ -2940,7 +2935,7 @@ class RegisterSendOTPAPI(APIView):
 
 class RegisterVerifyOTPAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for OTP verification
+    permission_classes = [IsAuthenticated]  # No authentication required for OTP verification
     @swagger_auto_schema(
         operation_summary="Verify Registration OTP",
         request_body=VerifyOTPSerializer,
@@ -2966,7 +2961,7 @@ class RegisterVerifyOTPAPI(APIView):
 
 class RegisterCompleteAPI(APIView):
     permission_classes = [AllowAny]
-    authentication_classes = []  # No authentication required for completing registration
+    permission_classes = [IsAuthenticated]  # No authentication required for completing registration
     @swagger_auto_schema(request_body=CompleteRegisterSerializer)
     def post(self, request):
         serializer = CompleteRegisterSerializer(data=request.data)
