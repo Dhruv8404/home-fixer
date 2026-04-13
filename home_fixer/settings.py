@@ -233,13 +233,15 @@ from datetime import timedelta
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",  # Bearer support
+                 "home.authentication.CsrfExemptJWTAuthentication", # Bearer support
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
 }
-
+CSRF_TRUSTED_ORIGINS = [
+    "https://home-fixer-production.up.railway.app",
+]
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=300),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=300),

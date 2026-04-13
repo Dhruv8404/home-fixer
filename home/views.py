@@ -5127,11 +5127,6 @@ STATUS:
             "total_cost": booking.total_cost
         })
         
-from rest_framework_simplejwt.authentication import JWTAuthentication
-
-class CsrfExemptJWTAuthentication(JWTAuthentication):
-    def enforce_csrf(self, request):
-        return  # ✅ disables CSRF completely
 
 # =========================================
 # 🔹 MERGED API → ADD PRODUCT + SERVICE CHARGE
@@ -6051,15 +6046,10 @@ from rest_framework.permissions import IsAuthenticated
     request_body=payment_request_schema,
     responses={200: "Payment Created"}
 )
-
-
-
-
 @api_view(['POST'])
 @authentication_classes([CsrfExemptJWTAuthentication])
 @permission_classes([IsAuthenticated])
 def create_payment_view(request, booking_id):
-    ...
     try:
         booking_id = request.data.get("booking_id")
         payment_type = request.data.get("payment_type")
