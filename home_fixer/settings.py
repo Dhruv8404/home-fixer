@@ -254,7 +254,7 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'PERSIST_AUTH': True,   # 🔥 REQUIRED
     'REFETCH_SCHEMA_WITH_AUTH': True,
-    'DEFAULT_API_URL': os.getenv('SWAGGER_API_URL', 'http://127.0.0.1:8000'),
+    'DEFAULT_API_URL': os.getenv('SWAGGER_API_URL', 'https://home-fixer-production.up.railway.app'),
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',
