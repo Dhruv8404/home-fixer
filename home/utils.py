@@ -298,16 +298,17 @@ def create_payment(booking, payment_type, gateway):
                     "booking_id": booking.id,
                     "payment_type": payment_type
                 },
+                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
+                payment_method="pm_card_visa",
+                confirm=True,
                 automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
             )
 
             payment.gateway_order_id = intent["id"]
             payment.save(update_fields=["gateway_order_id"])
 
-            return payment, {
-                "id": intent.id,
-                "client_secret": intent.client_secret
-            }
+            return payment, intent
+
     except Exception as e:
         logger.error(f"Payment error: {str(e)}")
         return None, str(e)
