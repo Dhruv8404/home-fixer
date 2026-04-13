@@ -1095,7 +1095,7 @@ class NearbyVendorAPI(APIView):
 #=============Booking Creation API =============#
 from .serializers import BookingCreateSerializer, BookingDetailSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.decorators import action, permission_classes
+from rest_framework.decorators import action, authentication_classes, permission_classes
 import cloudinary.uploader
 from decimal import Decimal
 
@@ -6042,6 +6042,7 @@ payment_request_schema = openapi.Schema(
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@authentication_classes([CsrfExemptJWTAuthentication])
 def create_payment_view(request):
     booking_id = request.data.get("booking_id")
     payment_type = request.data.get("payment_type")
@@ -6094,6 +6095,7 @@ razorpay_verify_schema = openapi.Schema(
     responses={200: "Payment Verified"}
 )
 @api_view(['POST'])
+@authentication_classes([CsrfExemptJWTAuthentication])
 def verify_razorpay_payment(request):
     try:
         order_id = request.data.get("razorpay_order_id")
@@ -6144,6 +6146,7 @@ stripe_verify_schema = openapi.Schema(
     responses={200: "Payment Verified"}
 )
 @api_view(['POST'])
+@authentication_classes([CsrfExemptJWTAuthentication])
 def verify_stripe_payment(request):
     try:
         intent_id = request.data.get("payment_intent_id")
