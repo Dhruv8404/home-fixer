@@ -233,7 +233,7 @@ from datetime import timedelta
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "home.authentication.CookieJWTAuthentication",   # Cookie support
+ 
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # Bearer support
     ),
     'DEFAULT_PERMISSION_CLASSES': (

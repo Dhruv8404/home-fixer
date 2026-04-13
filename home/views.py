@@ -6040,43 +6040,63 @@ payment_request_schema = openapi.Schema(
     request_body=payment_request_schema,
     responses={200: "Payment Created"}
 )
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from .authentication import CsrfExemptJWTAuthentication
+from .models import Booking
+from .utils import create_payment
+
+
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @authentication_classes([CsrfExemptJWTAuthentication])
 def create_payment_view(request):
-    booking_id = request.data.get("booking_id")
-    payment_type = request.data.get("payment_type")
-    gateway = request.data.get("gateway")
-
     try:
+        booking_id = request.data.get("booking_id")
+        payment_type = request.data.get("payment_type")
+        gateway = request.data.get("gateway")
+
+        if not booking_id or not payment_type or not gateway:
+            return Response({
+                "status": False,
+                "message": "booking_id, payment_type, gateway required"
+            }, status=400)
+
         booking = Booking.objects.get(id=booking_id)
+
+        payment, gateway_data = create_payment(
+            booking=booking,
+            payment_type=payment_type,
+            gateway=gateway
+        )
+
+        if not payment:
+            return Response({
+                "status": False,
+                "message": "Payment creation failed",
+                "error": gateway_data
+            }, status=400)
+
+        return Response({
+            "status": True,
+            "payment_id": payment.id,
+            "gateway_data": gateway_data
+        })
+
     except Booking.DoesNotExist:
-        return Response({"error": "Invalid booking"}, status=400)
-
-    payment, gateway_data = create_payment(
-        booking, payment_type, gateway
-    )
-
-    if not payment:
-        return Response({"error": gateway_data}, status=400)
-
-    if gateway == "RAZORPAY":
         return Response({
-            "payment_id": payment.id,
-            "gateway": "RAZORPAY",
-            "order_id": gateway_data["id"],
-            "amount": gateway_data["amount"],
-            "currency": gateway_data["currency"]
-        })
+            "status": False,
+            "message": "Booking not found"
+        }, status=404)
 
-    elif gateway == "STRIPE":
+    except Exception as e:
         return Response({
-            "payment_id": payment.id,
-            "gateway": "STRIPE",
-            "client_secret": gateway_data["client_secret"],
-            "amount": payment.amount
-        })
-# ==============================
+            "status": False,
+            "message": str(e)
+        }, status=500)# ==============================
 # 🔥 VERIFY RAZORPAY
 # ==============================
 razorpay_verify_schema = openapi.Schema(
@@ -6094,6 +6114,7 @@ razorpay_verify_schema = openapi.Schema(
     request_body=razorpay_verify_schema,
     responses={200: "Payment Verified"}
 )
+@csrf_exempt
 @api_view(['POST'])
 @authentication_classes([CsrfExemptJWTAuthentication])
 def verify_razorpay_payment(request):
@@ -6145,6 +6166,7 @@ stripe_verify_schema = openapi.Schema(
     request_body=stripe_verify_schema,
     responses={200: "Payment Verified"}
 )
+@csrf_exempt
 @api_view(['POST'])
 @authentication_classes([CsrfExemptJWTAuthentication])
 def verify_stripe_payment(request):
