@@ -2649,59 +2649,52 @@ class PaymentCreateAPIView(APIView):
         tags=["Payment"]
     )
     def post(self, request, booking_id):
-        try:
-            booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
-        except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=404)
 
-        if request.user.role != "CUSTOMER" or booking.customer.user != request.user:
-            return Response({"error": "Unauthorized"}, status=403)
-
-        serializer = PaymentGatewaySerializer(
-            data=request.data,
-            context={"booking_id": booking_id}
-        )
+        serializer = PaymentGatewaySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         payment_type = serializer.validated_data["payment_type"]
         gateway = serializer.validated_data["gateway"]
-        amount = serializer.validated_data["amount"]
 
-        # 🔥 BUSINESS VALIDATION
-        can_create, reason = can_create_payment(booking, payment_type, request.user)
-        if not can_create:
-            return Response({"error": reason}, status=400)
+        user = request.user
 
-        # 🔥 CREATE PAYMENT RECORD
+        # ✅ Get booking
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        # ✅ Validate
+        from .utils import can_create_payment
+        allowed, message = can_create_payment(booking, payment_type, user)
+
+        if not allowed:
+            return Response({"error": message}, status=400)
+
+        # ✅ Create payment
         payment = Payment.objects.create(
             booking=booking,
             customer=booking.customer,
-            amount=amount,
             payment_type=payment_type,
-            gateway=gateway,
-            status="PENDING"
+            gateway=gateway
         )
 
-# 🔥 GATEWAY-SPECIFIC CREATION
-        try:
-            if gateway == "STRIPE":
-                result = create_stripe_payment(payment)
-                result["amount"] = float(payment.amount)
-                result["booking_id"] = booking.id
-                return Response(result, status=201)
-            elif gateway == "RAZORPAY":
-                result = create_razorpay_order(payment)
-                result["amount"] = float(payment.amount) 
-                result["booking_id"] = booking.id
-                return Response(result, status=201)
-            else:
-                return Response({"error": "Invalid gateway"}, status=400)
-                
-        except Exception as e:
-            payment.status = "FAILED"
-            payment.save()
-            return Response({"error": str(e)}, status=500)
+        # ✅ Gateway call
+        if gateway == "STRIPE":
+            from .utils import create_stripe_payment
+            gateway_data = create_stripe_payment(payment)
 
+        elif gateway == "RAZORPAY":
+            from .utils import create_razorpay_order
+            gateway_data = create_razorpay_order(payment)
+
+        return Response({
+            "payment_id": payment.id,
+            "amount": payment.amount,
+            "gateway": payment.gateway,
+            "payment_type": payment.payment_type,
+            "data": gateway_data
+        })
 
 # ================= STRIPE VERIFY =================
 class StripePaymentVerifyAPIView(APIView):
@@ -2773,7 +2766,52 @@ POST {
 
 
 
+# views.py
 
+class VerifyPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=PaymentVerifySerializer,
+        operation_description="Verify Payment (Stripe / Razorpay)"
+    )
+    def post(self, request, payment_id):
+
+        serializer = PaymentVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        gateway = serializer.validated_data["gateway"]
+
+        try:
+            payment = Payment.objects.get(id=payment_id)
+        except Payment.DoesNotExist:
+            return Response({"error": "Payment not found"}, status=404)
+
+        # ✅ VERIFY
+        if gateway == "STRIPE":
+            from .utils import verify_stripe_payment
+            success = verify_stripe_payment(payment, serializer.validated_data)
+
+        elif gateway == "RAZORPAY":
+            from .utils import verify_razorpay_payment
+            success = verify_razorpay_payment(payment, serializer.validated_data)
+
+        if not success:
+            return Response({
+                "status": "FAILED",
+                "message": "Payment verification failed"
+            }, status=400)
+
+        # ✅ UPDATE STATUS
+        payment.status = Payment.Status.SUCCESS
+        payment.save()
+
+        return Response({
+            "status": "SUCCESS",
+            "message": "Payment verified successfully",
+            "payment_id": payment.id,
+            "amount": payment.amount
+        })
 
 
 class VendorTrackingAPI(APIView):

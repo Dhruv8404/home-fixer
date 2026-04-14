@@ -708,11 +708,18 @@ class PaymentCreateOrderSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class PaymentVerifySerializer(serializers.Serializer):
-    gateway_order_id = serializers.CharField()
-    gateway_payment_id = serializers.CharField()
-    gateway_signature = serializers.CharField()
+# serializers.py
 
+class PaymentVerifySerializer(serializers.Serializer):
+    gateway = serializers.ChoiceField(choices=["STRIPE", "RAZORPAY"])
+
+    # Razorpay fields
+    razorpay_order_id = serializers.CharField(required=False)
+    razorpay_payment_id = serializers.CharField(required=False)
+    razorpay_signature = serializers.CharField(required=False)
+
+    # Stripe fields
+    payment_intent_id = serializers.CharField(required=False)
 
 class PaymentDetailSerializer(serializers.ModelSerializer):
     class Meta:
