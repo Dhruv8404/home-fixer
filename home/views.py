@@ -5617,7 +5617,7 @@ class VerifyStripePaymentAPI(APIView):
             # ✅ RETURN CLIENT SECRET (THIS WAS YOUR MAIN ERROR)
             return Response({
                 "payment_id": payment.id,
-                "client_secret": intent.client_secret,
+                "client_secret":intent["client_secret"],
                 "amount": str(payment.amount),
                 "currency": "INR"
             }, status=status.HTTP_200_OK)

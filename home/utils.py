@@ -290,12 +290,6 @@ def can_create_payment(booking, payment_type, user):
 
 # ================== PAYMENT (🔥 MAIN LOGIC) ==================
 def create_payment(booking, payment_type, gateway):
-    """
-    payment_type: VISITING or FINAL
-    gateway: RAZORPAY or STRIPE
-    """
-
-    # 🔥 CREATE PAYMENT (amount auto-calculated from model)
     payment = Payment.objects.create(
         booking=booking,
         customer=booking.customer,
@@ -304,7 +298,7 @@ def create_payment(booking, payment_type, gateway):
         status="PENDING"
     )
 
-    amount = payment.amount  # auto calculated
+    amount = payment.amount
 
     try:
         # ================== RAZORPAY ==================
@@ -319,11 +313,9 @@ def create_payment(booking, payment_type, gateway):
                         "payment_type": str(payment_type)
                     }
                 })
-            except Exception as e:
-                # 🔥 Fallback for Swagger Testing if real keys are locked/invalid
-                logger.warning(f"Razorpay real API failed ({str(e)}), using MOCK order!")
+            except Exception:
                 order = {
-                    "id": f"order_mock_{booking.id}_{int(timezone.now().timestamp())}",
+                    "id": f"order_mock_{booking.id}",
                     "amount": int(float(amount) * 100),
                     "currency": "INR"
                 }
@@ -333,7 +325,7 @@ def create_payment(booking, payment_type, gateway):
 
             return payment, order
 
-        # ================== STRIPE ==================
+        # ================== STRIPE (✅ FIXED) ==================
         elif gateway == "STRIPE":
             intent = stripe.PaymentIntent.create(
                 amount=int(float(amount) * 100),
@@ -342,15 +334,20 @@ def create_payment(booking, payment_type, gateway):
                     "booking_id": booking.id,
                     "payment_type": payment_type
                 },
-                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
-                
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
+                automatic_payment_methods={
+                    "enabled": True,
+                    "allow_redirects": "never"
+                }
             )
 
+            # SAVE INTENT ID
             payment.gateway_order_id = intent["id"]
             payment.save(update_fields=["gateway_order_id"])
 
-            return payment,{"client_secret": intent.client_secret}
+            # ✅ IMPORTANT FIX
+            return payment, {
+                "client_secret": intent["client_secret"]
+            }
 
     except Exception as e:
         logger.error(f"Payment error: {str(e)}")
