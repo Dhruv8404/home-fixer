@@ -2788,26 +2788,35 @@ class VerifyPaymentAPIView(APIView):
         gateway = request.data.get("gateway")
 
         if gateway == "STRIPE":
-            success = verify_stripe_payment(payment, request.data)
+
+            payment_intent_id = request.data.get("payment_intent_id")
+
+            from .utils import verify_stripe_payment
+            success = verify_stripe_payment(payment_intent_id)
 
         elif gateway == "RAZORPAY":
-            success = verify_razorpay_payment(payment, request.data)
+
+            from .utils import verify_razorpay_payment
+            success = verify_razorpay_payment(
+                request.data.get("razorpay_order_id"),
+                request.data.get("razorpay_payment_id"),
+                request.data.get("razorpay_signature"),
+            )
 
         if not success:
             payment.status = "FAILED"
             payment.save()
             return Response({"error": "Payment failed"}, status=400)
 
-        # ✅ VERY IMPORTANT
+        # ✅ IMPORTANT (YOUR MODEL LOGIC)
         payment.status = "PAID"
-        payment.save()   # 🔥 THIS WILL AUTO UPDATE BOOKING
+        payment.save()
 
         return Response({
             "message": "Payment successful",
-            "booking_status": payment.booking.status,
-            "payment_status": payment.booking.payment_status
+            "booking_status": payment.booking.status
         })
-
+    
 class VendorTrackingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
