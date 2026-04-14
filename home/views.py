@@ -1695,14 +1695,17 @@ class ServicemanBookingRequestsAPI(APIView):
         # =========================
         # 3. FILTER BOOKINGS (🔥 FIX)
         # =========================
-        bookings = Booking.objects.select_related(
-            "customer__user",
-            "serviceman__user"
-        ).filter(
-            serviceman=serviceman,
-            payment_status="PAID"   # 🔥 ONLY PAID BOOKINGS
-        ).order_by("-created_at")
-
+        bookings = Booking.objects.filter(
+            customer__user=request.user
+        ).select_related(
+            'customer__user',
+            'serviceman__user'
+        ).prefetch_related(
+            'items',
+            'services',
+            'images',
+            'payments'
+        ).order_by('-created_at')
         # =========================
         # 4. SERIALIZE RESPONSE
         # =========================
@@ -2663,7 +2666,10 @@ class PaymentCreateAPIView(APIView):
 
         # ✅ Get booking
         try:
-            booking = Booking.objects.get(id=booking_id)
+            booking = Booking.objects.get(
+                id=booking_id,
+                customer__user=request.user
+            )
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
@@ -2780,43 +2786,57 @@ class VerifyPaymentAPIView(APIView):
     )
     def post(self, request, payment_id):
 
-        payment = Payment.objects.get(id=payment_id)
+        # ✅ SECURE PAYMENT FETCH
+        payment = get_object_or_404(
+            Payment,
+            id=payment_id,
+            booking__customer__user=request.user
+        )
 
+        # ✅ PREVENT DUPLICATE PAYMENT
         if payment.status == "PAID":
             return Response({"message": "Already paid"})
 
         gateway = request.data.get("gateway")
 
-        if gateway == "STRIPE":
+        try:
+            if gateway == "STRIPE":
 
-            payment_intent_id = request.data.get("payment_intent_id")
+                payment_intent_id = request.data.get("payment_intent_id")
 
-            from .utils import verify_stripe_payment
-            success = verify_stripe_payment(payment_intent_id)
+                from .utils import verify_stripe_payment
+                success = verify_stripe_payment(payment_intent_id)
 
-        elif gateway == "RAZORPAY":
+            elif gateway == "RAZORPAY":
 
-            from .utils import verify_razorpay_payment
-            success = verify_razorpay_payment(
-                request.data.get("razorpay_order_id"),
-                request.data.get("razorpay_payment_id"),
-                request.data.get("razorpay_signature"),
-            )
+                from .utils import verify_razorpay_payment
+                success = verify_razorpay_payment(
+                    request.data.get("razorpay_order_id"),
+                    request.data.get("razorpay_payment_id"),
+                    request.data.get("razorpay_signature"),
+                )
+            else:
+                return Response({"error": "Invalid gateway"}, status=400)
+
+        except Exception:
+            return Response({"error": "Verification failed"}, status=400)
 
         if not success:
             payment.status = "FAILED"
             payment.save()
             return Response({"error": "Payment failed"}, status=400)
 
-        # ✅ IMPORTANT (YOUR MODEL LOGIC)
+        # ✅ SUCCESS
         payment.status = "PAID"
         payment.save()
 
         return Response({
             "message": "Payment successful",
             "booking_status": payment.booking.status
-        })
-    
+        })    
+
+
+        
 class VendorTrackingAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -4724,37 +4744,31 @@ class ServicemanBookingRequestsAPI(APIView):
     )
     def get(self, request):
 
-        # =========================
-        # 1. ROLE CHECK
-        # =========================
         if request.user.role != "SERVICEMAN":
             return Response(
                 {"error": "Only serviceman can access this"},
                 status=403
             )
 
-        # =========================
-        # 2. GET SERVICEMAN PROFILE
-        # =========================
         serviceman = get_object_or_404(
             ServicemanProfile,
             user=request.user
         )
 
-        # =========================
-        # 3. FILTER BOOKINGS (🔥 FIX)
-        # =========================
-        bookings = Booking.objects.select_related(
-            "customer__user",
-            "serviceman__user"
-        ).filter(
+        # ✅ FIXED QUERY (IMPORTANT)
+        bookings = Booking.objects.filter(
             serviceman=serviceman,
-            payment_status="PAID"   # 🔥 ONLY PAID BOOKINGS
-        ).order_by("-created_at")
+            payment_status__in=["PAID", "PARTIAL"]
+        ).select_related(
+            'customer__user',
+            'serviceman__user'
+        ).prefetch_related(
+            'items',
+            'services',
+            'images',
+            'payments'
+        ).order_by('-created_at')
 
-        # =========================
-        # 4. SERIALIZE RESPONSE
-        # =========================
         response_data = []
 
         for booking in bookings:
@@ -4775,14 +4789,10 @@ class ServicemanBookingRequestsAPI(APIView):
                 }
             })
 
-        # =========================
-        # 5. RESPONSE
-        # =========================
         return Response({
             "count": len(response_data),
             "bookings": response_data
         })
-
 
 #=============Booking Tracking API =============#
 

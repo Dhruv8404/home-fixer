@@ -6,7 +6,7 @@ from rest_framework import serializers
 from .models import Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, Booking, BookingItem
 import re
 from django.contrib.auth import authenticate
-
+from django.db.models import Sum, F
 class EmailPasswordLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
@@ -837,9 +837,15 @@ class BookingHistorySerializer(serializers.ModelSerializer):
     serviceman_name = serializers.CharField(source="serviceman.user.name", read_only=True)
     product_total = serializers.SerializerMethodField()
 
-    def get_product_total(self, obj):
-        return sum([item.get_total_price() for item in obj.items.filter(approval_status="APPROVED")])
     
+
+    def get_product_total(self, obj):
+        return obj.items.filter(
+            approval_status="APPROVED"
+        ).aggregate(
+            total=Sum(F('quantity') * F('product_price'))
+        )['total'] or 0
+
     class Meta:
         model = Booking
         fields = [

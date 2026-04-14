@@ -268,24 +268,43 @@ class Booking(models.Model):
 
     PAYMENT_STATUS_CHOICES = [
         ('PENDING', 'Pending'),
-        ('PARTIAL', 'Partial Paid'),   # 🔥 NEW
+        ('PARTIAL', 'Partial Paid'),
         ('PAID', 'Paid'),
         ('FAILED', 'Failed'),
     ]
 
-    customer = models.ForeignKey("CustomerProfile", on_delete=models.CASCADE, null=True, blank=True)
-    serviceman = models.ForeignKey("ServicemanProfile", on_delete=models.CASCADE, null=True, blank=True)
+    customer = models.ForeignKey(
+        "CustomerProfile",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_index=True   # 🔥 IMPORTANT
+    )
 
-    scheduled_date = models.DateField()
+    serviceman = models.ForeignKey(
+        "ServicemanProfile",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_index=True   # 🔥 IMPORTANT
+    )
+
+    scheduled_date = models.DateField(db_index=True)
     scheduled_time = models.TimeField()
 
     problem_title = models.CharField(max_length=255)
     problem_description = models.TextField()
+
     image_urls = models.JSONField(default=list, blank=True)
-    services = models.ManyToManyField("Service", blank=True)  # 🔥 NEW: multiple services field
 
+    services = models.ManyToManyField("Service", blank=True)
 
-    service_type = models.CharField(max_length=30, choices=SERVICE_TYPE_CHOICES, default="VISITING")
+    service_type = models.CharField(
+        max_length=30,
+        choices=SERVICE_TYPE_CHOICES,
+        default="VISITING",
+        db_index=True
+    )
 
     visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -293,30 +312,47 @@ class Booking(models.Model):
 
     total_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING_PAYMENT')
-    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='PENDING')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING_PAYMENT',
+        db_index=True   # 🔥 FILTER USE
+    )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
+        default='PENDING',
+        db_index=True
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)  # 🔥 SORT USE
     updated_at = models.DateTimeField(auto_now=True)
 
-    # 🔥 SERVICE UPDATE
+    class Meta:
+        indexes = [
+            models.Index(fields=['customer', '-created_at']),
+            models.Index(fields=['serviceman', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['payment_status']),
+        ]
+
+    # 🔥 SERVICE TYPE UPDATE
     def update_service_type(self):
         has_items = False
         if self.pk:
-            has_items = self.items.exists()
-
+            has_items = self.items.filter(approval_status="APPROVED").exists()
         if self.service_charge > 0 or has_items:
             self.service_type = "VISITING_SERVICE"
         else:
             self.service_type = "VISITING"
 
-    # 🔥 TOTAL UPDATE
+    # 🔥 TOTAL COST UPDATE (OPTIMIZED)
     def update_total_cost(self):
         if self.pk:
-            product_total = sum([
-                item.get_total_price()
-                for item in self.items.filter(approval_status="APPROVED")
-            ])
+            product_total = self.items.filter(
+                approval_status="APPROVED"
+            ).aggregate(total=models.Sum("total_price"))["total"] or 0
         else:
             product_total = 0
 
@@ -327,7 +363,6 @@ class Booking(models.Model):
             product_total
         )
 
-    # 🔥 SAVE OVERRIDE
     def save(self, *args, **kwargs):
         self.update_service_type()
         self.update_total_cost()
@@ -335,7 +370,9 @@ class Booking(models.Model):
 
     def __str__(self):
         return f"Booking #{self.id}"
-    
+
+
+
 class BookingImage(models.Model):
 
     booking = models.ForeignKey(
@@ -410,11 +447,28 @@ class BookingItem(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
+        from django.db.models import Sum, F
+
         if self.booking:
-            self.booking.update_total_cost()
-            self.booking.update_service_type()
-            self.booking.save(update_fields=["total_cost", "service_type"])
-            
+            product_total = self.booking.items.filter(
+                approval_status="APPROVED"
+            ).aggregate(
+            total=Sum(F('quantity') * F('product_price'))
+            )['total'] or 0
+
+            total_cost = (
+                self.booking.visiting_charge +
+                self.booking.service_charge +
+                self.booking.platform_fee +
+                product_total
+            )
+
+            service_type = "VISITING_SERVICE" if product_total > 0 or self.booking.service_charge > 0 else "VISITING"
+
+            Booking.objects.filter(id=self.booking.id).update(
+                total_cost=total_cost,
+                service_type=service_type
+            )    
 
 class MaterialOrder(models.Model):
 
@@ -494,10 +548,11 @@ class MaterialOrder(models.Model):
         super().save(*args, **kwargs)
 
     def update_total_cost(self):
-        total = sum([
-            item.quantity * item.price_at_order
-            for item in self.items.all()
-        ])
+        from django.db.models import Sum, F
+
+        total = self.items.aggregate(
+            total=Sum(F('quantity') * F('price_at_order'))
+        )['total'] or 0
         self.total_cost = total
         self.save(update_fields=["total_cost"])
 
@@ -678,11 +733,13 @@ class Payment(models.Model):
 
             # ✅ FINAL PAYMENT
             elif self.payment_type == "FINAL":
-                product_total = sum([
-                    item.quantity * item.product_price
-                    for item in self.booking.items.filter(approval_status="APPROVED")
-                ])
+                from django.db.models import Sum, F
 
+                product_total = self.booking.items.filter(
+                    approval_status="APPROVED"
+                ).aggregate(
+                    total=Sum(F('quantity') * F('product_price'))
+                )['total'] or 0
                 self.amount = (
                     self.booking.service_charge +
                     product_total

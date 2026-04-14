@@ -319,7 +319,7 @@ def verify_stripe_payment(payment_intent_id):
     """
     try:
         intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-        
+
         if intent.status == "succeeded":
             # Find payment by metadata
             payment_id = intent.metadata.get("payment_id")
@@ -337,7 +337,8 @@ def verify_stripe_payment(payment_intent_id):
         raise serializers.ValidationError("Payment not found")
     except stripe.error.StripeError as e:
         raise serializers.ValidationError(f"Stripe verification failed: {str(e)}")
-
+    except stripe.error.StripeError:
+        return requests.Response({"error": "Invalid payment intent"}, status=400)
 
 def create_razorpay_order(payment):
     """
