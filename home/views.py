@@ -5593,7 +5593,6 @@ from django.shortcuts import get_object_or_404
 from .models import Booking, Payment
 from .utils import verify_stripe_payment
 
-
 class VerifyStripePaymentAPI(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -5607,10 +5606,10 @@ class VerifyStripePaymentAPI(APIView):
                 "message": "payment_intent_id is required"
             }, status=400)
 
-        # ✅ Get booking
+        # ✅ Booking
         booking = get_object_or_404(Booking, id=booking_id)
 
-        # ✅ Get payment
+        # ✅ Payment (SAFE FIX)
         payment = Payment.objects.filter(
             booking=booking,
             gateway="STRIPE"
@@ -5619,20 +5618,20 @@ class VerifyStripePaymentAPI(APIView):
         if not payment:
             return Response({
                 "success": False,
-                "message": "Payment not found"
+                "message": "No payment record found"
             }, status=404)
 
-        # ✅ Verify from Stripe
+        # ✅ Verify Stripe
         result = verify_stripe_payment(payment_intent_id)
 
-        if not result["success"]:
+        if not result.get("success"):
             return Response({
                 "success": False,
                 "message": result.get("error", "Verification failed")
             }, status=400)
 
-        # ✅ If success → update DB
-        if result["status"] == "PAID":
+        # ✅ Stripe returns "succeeded"
+        if result.get("status") == "SUCCEEDED":
 
             payment.status = "PAID"
             payment.save()
@@ -5647,9 +5646,10 @@ class VerifyStripePaymentAPI(APIView):
 
         return Response({
             "success": False,
-            "message": f"Payment not completed (status: {result['status']})"
+            "message": f"Payment not completed ({result.get('status')})"
         }, status=400)
-
+    
+    
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
