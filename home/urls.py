@@ -146,6 +146,10 @@ urlpatterns = [
         "booking/<int:booking_id>/payment/create-intent/",
         CreatePaymentIntentAPI.as_view(),
     ),
+    path(
+    "booking/<int:booking_id>/payment/verify/",
+    views.verify_stripe_payment,
+),
     # ================= PAYMENT =================
     path("booking/<int:booking_id>/payment/", views.BookingPaymentDetailAPI.as_view()),
     path("booking/<int:booking_id>/payment/status/", views.PaymentStatusAPI.as_view()),
