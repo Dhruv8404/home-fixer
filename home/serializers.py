@@ -954,3 +954,61 @@ class PaymentCanCreateSerializer(serializers.Serializer):
         data["amount"] = amount
         
         return data
+
+
+# ================= PAYMENT GATEWAY SERIALIZERS =================
+class PaymentGatewaySerializer(serializers.Serializer):
+    """
+    POST /booking/{id}/payment/create/
+    Customer selects payment method
+    """
+    payment_type = serializers.ChoiceField(choices=["VISITING", "FINAL"])
+    gateway = serializers.ChoiceField(choices=["STRIPE", "RAZORPAY"])
+    
+    # Read-only (auto-calculated)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    currency = serializers.CharField(default="INR", read_only=True)
+    
+    def validate(self, data):
+        booking_id = self.context["booking_id"]
+        payment_type = data["payment_type"]
+        gateway = data["gateway"]
+        
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            raise serializers.ValidationError("Booking not found")
+        
+        # Create temp payment to validate amount
+        temp_payment = Payment.objects.create(
+            booking=booking,
+            customer=booking.customer,
+            payment_type=payment_type,
+            gateway=gateway,
+            status="PENDING"
+        )
+        
+        data["amount"] = temp_payment.amount
+        data["currency"] = "INR"
+        temp_payment.delete()
+        
+        return data
+
+
+class StripePaymentResponseSerializer(serializers.Serializer):
+    """
+    Stripe payment response
+    """
+    client_secret = serializers.CharField()
+    payment_intent_id = serializers.CharField()
+    
+
+class RazorpayPaymentResponseSerializer(serializers.Serializer):
+    """
+    Razorpay payment response  
+    """
+    order_id = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    currency = serializers.CharField()
+    key_id = serializers.CharField()
+

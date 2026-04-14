@@ -17,6 +17,8 @@ from .models import Booking, BookingItem, OrderItem, Payment, User, CustomerProf
 from .serializers import (
     BookingCreateSerializer,
     PaymentCanCreateSerializer,
+    PaymentGatewaySerializer,
+    PaymentVerifySerializer,
     SendOTPSerializer,
     VendorNearbySerializer,
     VerifyOTPSerializer,
@@ -34,7 +36,7 @@ from .serializers import (
     BookingHistorySerializer
 )
 
-from .utils import create_payment, send_email_otp, verify_email_otp
+from .utils import can_create_payment, create_razorpay_order, create_stripe_payment, send_email_otp, verify_email_otp, verify_razorpay_payment, verify_stripe_payment
 from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
@@ -2595,6 +2597,176 @@ Returns:
         )
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data)
+
+
+# ================= NEW PAYMENT CREATE VIEW =================
+class PaymentCreateAPIView(APIView):
+    """
+    🔥 MAIN ENDPOINT: Create Stripe/Razorpay payment
+    
+    POST /booking/{booking_id}/payment/create/
+    {
+        "payment_type": "VISITING", 
+        "gateway": "STRIPE"
+    }
+    
+    Returns gateway-specific response:
+    - Stripe: {client_secret, payment_intent_id}
+    - Razorpay: {order_id, amount, key_id}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Create Payment (Stripe/Razorpay)",
+        operation_description="""
+1. Validates business rules (can_create_payment)
+2. Creates Payment record  
+3. Creates gateway order (Stripe PaymentIntent / Razorpay Order)
+4. Returns gateway response
+        
+**Flow:**
+- VISITING → booking.payment_status = PARTIAL
+- FINAL → booking.payment_status = PAID  
+        """,
+        request_body=PaymentGatewaySerializer,
+        responses={
+            201: openapi.Response(
+                description="Payment created successfully",
+                examples={
+                    "stripe": {
+                        "client_secret": "pi_xxx_secret_xxx",
+                        "payment_intent_id": "pi_xxx"
+                    },
+                    "razorpay": {
+                        "order_id": "order_xxx", 
+                        "amount": "520.00",
+                        "key_id": "rzp_xxx"
+                    }
+                }
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request, booking_id):
+        try:
+            booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        if request.user.role != "CUSTOMER" or booking.customer.user != request.user:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        serializer = PaymentGatewaySerializer(
+            data=request.data,
+            context={"booking_id": booking_id}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        payment_type = serializer.validated_data["payment_type"]
+        gateway = serializer.validated_data["gateway"]
+        amount = serializer.validated_data["amount"]
+
+        # 🔥 BUSINESS VALIDATION
+        can_create, reason = can_create_payment(booking, payment_type, request.user)
+        if not can_create:
+            return Response({"error": reason}, status=400)
+
+        # 🔥 CREATE PAYMENT RECORD
+        payment = Payment.objects.create(
+            booking=booking,
+            customer=booking.customer,
+            amount=amount,
+            payment_type=payment_type,
+            gateway=gateway,
+            status="PENDING"
+        )
+
+        # 🔥 GATEWAY-SPECIFIC CREATION
+        try:
+            if gateway == "STRIPE":
+                result = create_stripe_payment(payment)
+                return Response(result, status=201)
+            elif gateway == "RAZORPAY":
+                result = create_razorpay_order(payment)
+                return Response(result, status=201)
+            else:
+                return Response({"error": "Invalid gateway"}, status=400)
+                
+        except Exception as e:
+            payment.status = "FAILED"
+            payment.save()
+            return Response({"error": str(e)}, status=500)
+
+
+# ================= STRIPE VERIFY =================
+class StripePaymentVerifyAPIView(APIView):
+    """
+    Verify Stripe PaymentIntent (client-side or webhook)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Verify Stripe Payment",
+        operation_description="Verifies payment_intent_id from Stripe Elements",
+        request_body=VerifyStripePaymentSerializer,
+        responses={
+            200: openapi.Response(
+                description="Payment verified",
+                examples={"status": "verified"}
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request):
+        serializer = VerifyStripePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        result = verify_stripe_payment(serializer.validated_data["payment_intent_id"])
+        return Response(result)
+
+
+# ================= RAZORPAY VERIFY =================  
+class RazorpayPaymentVerifyAPIView(APIView):
+    """
+    Verify Razorpay payment (signature verification)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Verify Razorpay Payment",
+        operation_description="""
+POST {
+    "gateway_order_id": "order_xxx",
+    "gateway_payment_id": "pay_xxx", 
+    "gateway_signature": "xxx"
+}
+        """,
+        request_body=PaymentVerifySerializer,
+        responses={
+            200: openapi.Response(
+                description="Payment verified", 
+                examples={"status": "verified"}
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request):
+        serializer = PaymentVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            result = verify_razorpay_payment(
+                serializer.validated_data["gateway_order_id"],
+                serializer.validated_data["gateway_payment_id"],
+                serializer.validated_data["gateway_signature"]
+            )
+            return Response(result)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
 
 
 
@@ -5460,225 +5632,7 @@ class UpdateProductAndServiceChargeAPI(APIView):
 
 
 
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .utils import create_payment, can_create_payment
-payment_intent_schema = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    properties={
-        "amount": openapi.Schema(type=openapi.TYPE_NUMBER, example=500),
-    },
-)
 
-class CreatePaymentIntentAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_description="Create Payment Intent",
-        request_body=payment_intent_schema,
-        responses={200: "Payment Intent Created"}
-    )
-    def post(self, request, booking_id):
-        try:
-            # ===============================
-            # ✅ GET BOOKING
-            # ===============================
-            booking = Booking.objects.get(
-                id=booking_id,
-                customer__user=request.user
-            )
-
-            gateway = request.data.get("gateway", "STRIPE")
-
-            # ===============================
-            # 🔥 AUTO DECIDE PAYMENT TYPE
-            # ===============================
-            visiting_paid = Payment.objects.filter(
-                booking=booking,
-                payment_type="VISITING",
-                status="SUCCESS"
-            ).exists()
-
-            final_paid = Payment.objects.filter(
-                booking=booking,
-                payment_type="FINAL",
-                status="SUCCESS"
-            ).exists()
-
-            if not visiting_paid:
-                payment_type = "VISITING"
-            elif visiting_paid and not final_paid:
-                payment_type = "FINAL"
-            else:
-                return Response({
-                    "error": "All payments already completed"
-                }, status=400)
-
-            # ===============================
-            # 🔒 VALIDATION FOR FINAL
-            # ===============================
-            if payment_type == "FINAL":
-                if booking.service_charge == 0 and booking.items.count() == 0:
-                    return Response({
-                        "error": "No service or products added"
-                    }, status=400)
-
-            # ===============================
-            # 💳 CREATE PAYMENT
-            # ===============================
-            payment, data = create_payment(
-                booking=booking,
-                payment_type=payment_type,
-                gateway=gateway
-            )
-
-            if not payment:
-                return Response({"error": data}, status=400)
-
-            # ===============================
-            # 🔥 STRIPE RESPONSE FIX
-            # ===============================
-            if gateway == "STRIPE":
-                client_secret = data.get("client_secret")
-
-                # ❌ CRITICAL CHECK
-                if not client_secret:
-                    return Response({
-                        "error": "Stripe client_secret not generated"
-                    }, status=500)
-
-                return Response({
-                    "payment_id": payment.id,
-                    "payment_type": payment_type,
-                    "client_secret": client_secret,
-                    "payment_intent_id": data.get("payment_intent_id")
-                })
-
-            # ===============================
-            # 💳 RAZORPAY RESPONSE
-            # ===============================
-            elif gateway == "RAZORPAY":
-                return Response({
-                    "payment_id": payment.id,
-                    "payment_type": payment_type,
-                    "order": data
-                })
-
-        except Booking.DoesNotExist:
-            return Response({
-                "error": "Booking not found"
-            }, status=404)
-
-        except Exception as e:
-            return Response({
-                "error": str(e)
-            }, status=500)
-
-
-verify_schema = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    required=["payment_intent_id"],
-    properties={
-        "payment_intent_id": openapi.Schema(type=openapi.TYPE_STRING),
-    },
-)
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
-
-from .models import Booking, Payment
-from .utils import verify_stripe_payment
-
-class VerifyStripePaymentAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, booking_id):
-
-        payment_intent_id = request.data.get("payment_intent_id")
-
-        if not payment_intent_id:
-            return Response({
-                "success": False,
-                "message": "payment_intent_id is required"
-            }, status=400)
-
-        # ✅ Booking
-        booking = get_object_or_404(Booking, id=booking_id)
-
-        # ✅ Payment (SAFE FIX)
-        payment = Payment.objects.filter(
-            booking=booking,
-            gateway="STRIPE"
-        ).last()
-
-        if not payment:
-            return Response({
-                "success": False,
-                "message": "No payment record found"
-            }, status=404)
-
-        # ✅ Verify Stripe
-        result = verify_stripe_payment(payment_intent_id)
-
-        if not result.get("success"):
-            return Response({
-                "success": False,
-                "message": result.get("error", "Verification failed")
-            }, status=400)
-
-        # ✅ Stripe returns "succeeded"
-        if result.get("status") == "SUCCEEDED":
-
-            payment.status = "PAID"
-            payment.save()
-
-            booking.payment_status = "PAID"
-            booking.save()
-
-            return Response({
-                "success": True,
-                "message": "Payment verified successfully"
-            })
-
-        return Response({
-            "success": False,
-            "message": f"Payment not completed ({result.get('status')})"
-        }, status=400)
-    
-    
-class BookingPaymentDetailAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    @swagger_auto_schema(
-        operation_summary="Get booking payment details",
-        responses={
-            200: openapi.Response(
-                description="Booking Payment Details",
-                examples={
-                    "application/json": {
-                        "booking_id": 12,
-                        "payment_status": "PAID"
-                    }
-                }
-            ),
-            404: "Booking not found"
-        },
-        security=[{"Bearer": []}],
-        tags=["Payment"]
-    )
-    def get(self, request, booking_id):
-        try:
-            booking = Booking.objects.get(id=booking_id, customer__user=request.user)
-            return Response({
-                "booking_id": booking.id,
-                "payment_status": booking.payment_status,
-            }, status=200)
-        except Booking.DoesNotExist:
-
-            return Response({"detail": "Booking not found"}, status=404)
 
 
 
@@ -6191,7 +6145,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from .models import Payment, Booking
-from .utils import create_payment
+
 
 # Stripe config
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -6214,194 +6168,6 @@ payment_request_schema = openapi.Schema(
         ),
     },
 )
-
-# ==============================
-# 🔥 CREATE PAYMENT (COMMON)
-# ==============================
-@swagger_auto_schema(
-    method='post',
-    request_body=payment_request_schema,
-    responses={200: "Payment Created"}
-)
-@api_view(['POST'])
-def create_payment_view(request):
-    """
-    🔥 ENHANCED: 2-Step Payment Creation with Validation (Step 5/7)
-    
-    POST /payment/create/
-    {booking_id: 1, payment_type: "VISITING|FINAL", gateway: "RAZORPAY|STRIPE"}
-    """
-    try:
-        booking_id = request.data.get("booking_id")
-        payment_type = request.data.get("payment_type")
-        gateway = request.data.get("gateway")
-
-        if not all([booking_id, payment_type, gateway]):
-            return Response({"error": "booking_id, payment_type, gateway required"}, status=400)
-
-        booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
-        
-        # 🔥 NEW VALIDATION (Prevents duplicates + enforces order)
-        from .utils import can_create_payment
-        can_create, reason = can_create_payment(booking, payment_type, request.user)
-        
-        if not can_create:
-            return Response({
-                "error": reason,
-                "payment_type": payment_type
-            }, status=400)
-
-        payment, gateway_data = create_payment(
-            booking=booking,
-            payment_type=None,
-            gateway=gateway
-        )
-
-        if not payment:
-            return Response({"error": gateway_data if gateway_data else "Payment creation failed"}, status=400)
-
-        # Razorpay response
-        if gateway == "RAZORPAY":
-            return Response({
-                "payment_id": payment.id,
-                "gateway": "RAZORPAY",
-                "order_id": gateway_data["id"],
-                "amount": str(payment.amount),  # Frontend expects string
-                "currency": "INR",
-                "platform_fee": str(booking.platform_fee)
-            })
-
-        # Stripe response
-        elif gateway == "STRIPE":
-            return Response({
-                "payment_id": payment.id,
-                "gateway": "STRIPE",
-                "client_secret": gateway_data["client_secret"],
-                "amount": str(payment.amount),
-                "platform_fee": str(booking.platform_fee)
-            })
-
-    except Booking.DoesNotExist:
-        return Response({"error": "Booking not found"}, status=404)
-    except ValueError as ve:
-        return Response({"error": str(ve)}, status=400)
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
-
-
-# ==============================
-# 🔥 VERIFY RAZORPAY
-# ==============================
-razorpay_verify_schema = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    required=["razorpay_order_id", "razorpay_payment_id", "razorpay_signature"],
-    properties={
-        "razorpay_order_id": openapi.Schema(type=openapi.TYPE_STRING),
-        "razorpay_payment_id": openapi.Schema(type=openapi.TYPE_STRING),
-        "razorpay_signature": openapi.Schema(type=openapi.TYPE_STRING),
-    },
-)
-
-@swagger_auto_schema(
-    method='post',
-    request_body=razorpay_verify_schema,
-    responses={200: "Payment Verified"}
-)
-@api_view(['POST'])
-def verify_razorpay_payment(request):
-    try:
-        order_id = request.data.get("razorpay_order_id")
-        payment_id = request.data.get("razorpay_payment_id")
-        signature = request.data.get("razorpay_signature")
-
-        client = razorpay.Client(
-            auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-        )
-
-        if "mock" not in order_id:
-            client.utility.verify_payment_signature({
-                "razorpay_order_id": order_id,
-                "razorpay_payment_id": payment_id,
-                "razorpay_signature": signature
-            })
-        else:
-            # 🔥 BYPASS signature check for mock testing
-            pass
-
-        payment = Payment.objects.get(gateway_order_id=order_id)
-
-        payment.gateway_payment_id = payment_id
-        payment.gateway_signature = signature
-        payment.status = "PAID"
-        payment.save()
-
-        return Response({"message": "Razorpay payment successful"})
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
-
-
-# ==============================
-# 🔥 VERIFY STRIPE
-# ==============================
-stripe_verify_schema = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    required=["payment_intent_id"],
-    properties={
-        "payment_intent_id": openapi.Schema(type=openapi.TYPE_STRING),
-    },
-)
-
-@swagger_auto_schema(
-    method='post',
-    request_body=stripe_verify_schema,
-    responses={200: "Payment Verified"}
-)
-
-@api_view(["POST"])
-def verify_stripe_payment(request):
-    try:
-        payment_intent_id = request.data.get("payment_intent_id")
-
-        if not payment_intent_id:
-            return Response({
-                "error": "payment_intent_id is required"
-            }, status=400)
-
-        # 🔥 Fetch payment intent from Stripe
-        intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-
-        # 🔥 Find payment in DB
-        try:
-            payment = Payment.objects.get(gateway_order_id=payment_intent_id)
-        except Payment.DoesNotExist:
-            return Response({
-                "error": "Payment not found"
-            }, status=404)
-
-        # 🔥 Check status
-        if intent.status == "succeeded":
-            payment.status = "SUCCESS"
-            payment.save()
-
-            return Response({
-                "message": "Payment successful",
-                "status": "SUCCESS"
-            })
-
-        else:
-            payment.status = "FAILED"
-            payment.save()
-
-            return Response({
-                "message": "Payment failed",
-                "status": intent.status
-            })
-
-    except Exception as e:
-        return Response({
-            "error": str(e)
-        }, status=500)
     
 class ServicemanCompleteBookingAPI(APIView):
     """

@@ -289,7 +289,7 @@ class Booking(models.Model):
 
     visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=20.00)
 
     total_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 

@@ -1,33 +1,52 @@
-# 2-STEP PAYMENT SYSTEM IMPLEMENTATION ✅ COMPLETE
-## Status: 🎉 7/7 Complete ✅
+# Payment Integration TODO
 
-### ✅ Completed Steps:
-**Step 1:** `can_create_payment()` validation logic in `utils.py`
-**Step 2:** `PaymentStatusSerializer` + `PaymentCanCreateSerializer` in `serializers.py`
-**Step 3:** `PaymentStatusAPI` in `views.py`
-**Step 4:** `PaymentCanCreateAPI` in `views.py`
-**Step 5:** Enhanced `create_payment_view()` with pre-validation
-**Step 6:** URL patterns added to `urls.py`
-**Step 7:** Full flow ready for testing
+## Current Progress: ✅ Steps 1-4 Complete
 
-### 🆕 APIs Available:
 ```
-GET    /booking/<id>/payment/status/           → {visiting_paid, final_paid, next_payment_type, next_amount}
-POST   /booking/<id>/payment/can-create/       → {payment_type: "VISITING"} → {can_create, reason, amount}
-POST   /payment/create/                        → Now validates before creating payment
+✅ Step 1: Serializers - home/serializers.py
+✅ Step 2: Utils - home/utils.py  
+✅ Step 3: Views - home/views.py
+✅ Step 4: URLs - home/urls.py
 ```
 
-### 🔥 Test Complete Flow:
-```
-1️⃣ Create booking → PENDING_PAYMENT
-2️⃣ GET /booking/1/payment/status/ → {visiting_paid: false, next: "VISITING"}
-3️⃣ POST /booking/1/payment/can-create/ → {"payment_type": "VISITING"} → {can_create: true, amount: 520}
-4️⃣ POST /payment/create/ → payment intent (passes validation)
-5️⃣ Verify payment → PARTIAL paid
-6️⃣ POST /booking/1/payment/can-create/ (FINAL) → {can_create: false, reason: "visiting not paid"}
-7️⃣ Add service charge → POST /payment/create/ (FINAL) → ✅ success (passes validation)
+## Remaining Steps:
+
+### Step 5: [ ] Test Endpoints Locally
+```bash
+# 1. Check payment status
+GET /booking/1/payment/status/
+
+# 2. Pre-flight validation  
+POST /booking/1/payment/can-create/ {"payment_type": "VISITING"}
+
+# 3. Create Stripe payment (test mode)
+POST /booking/1/payment/create/ 
+{
+  "payment_type": "VISITING", 
+  "gateway": "STRIPE"
+}
+
+# 4. Verify payment (after Stripe Elements)
+POST /payment/stripe/verify/ {"payment_intent_id": "pi_xxx"}
 ```
 
-**🎉 Implementation Complete!**
+### Step 6: [ ] Production Webhooks
+```
+Stripe Dashboard → Add Endpoint:
+POST /payment/stripe/webhook/
 
-**Next:** Test the full 2-step payment flow end-to-end
+Razorpay Dashboard → Webhook URL:
+POST /payment/razorpay/webhook/
+```
+
+## 🎉 Endpoints Ready:
+
+```
+✅ POST /booking/{id}/payment/create/ - Create payment
+✅ POST /payment/stripe/verify/ - Verify Stripe  
+✅ POST /payment/razorpay/verify/ - Verify Razorpay
+✅ GET /booking/{id}/payment/status/ - Check status
+✅ POST /booking/{id}/payment/can-create/ - Pre-flight
+```
+
+**Next Action:** Test endpoints (Step 5)

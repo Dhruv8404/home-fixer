@@ -5,7 +5,6 @@ from .views import (
     BookingTrackingAPI,
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
-    CreatePaymentIntentAPI,
     CustomerBookingHistoryAPI,
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
@@ -41,7 +40,7 @@ from .views import (
     ProductCreateAPI,
     ProductUpdateAPI,
     VendorTrackingAPI,
-    VerifyStripePaymentAPI,
+  
     AddProductAndServiceAPI,
     ApproveBookingItemsAPI,
     VendorOrdersView,
@@ -102,9 +101,14 @@ urlpatterns = [
     path("admin/servicemen/all/", views.AdminServicemanListAPI.as_view()),
     path("admin/vendors/all/", views.AdminVendorListAPI.as_view()),
 
+    # 🔥 NEW PAYMENT ENDPOINTS
+    path("booking/<int:booking_id>/payment/create/", views.PaymentCreateAPIView.as_view()),
+    path("payment/stripe/verify/", views.StripePaymentVerifyAPIView.as_view()),
+    path("payment/razorpay/verify/", views.RazorpayPaymentVerifyAPIView.as_view()),
 
     # ================= CATEGORY =================
     path("categories/", CategoryListAPI.as_view()),
+
     path("admin/categories/create/", CategoryCreateAPI.as_view()),
     path("admin/categories/<int:pk>/", CategoryDetailAPI.as_view()),
 
@@ -142,22 +146,8 @@ urlpatterns = [
     path("booking/<int:booking_id>/update-product-service/", UpdateProductAndServiceChargeAPI.as_view()),
     path("booking/<int:booking_id>/approve/", ApproveBookingItemsAPI.as_view()),
 
-    path(
-        "booking/<int:booking_id>/payment/create-intent/",
-        CreatePaymentIntentAPI.as_view(),
-    ),
-    path(
-    "booking/<int:booking_id>/payment/verify/",
-    VerifyStripePaymentAPI.as_view(),
-),
-    # ================= PAYMENT =================
-    path("booking/<int:booking_id>/payment/", views.BookingPaymentDetailAPI.as_view()),
-    path("booking/<int:booking_id>/payment/status/", views.PaymentStatusAPI.as_view()),
-    path("booking/<int:booking_id>/payment/can-create/", views.PaymentCanCreateAPI.as_view()),
-    path("payment/create/", views.create_payment_view),
-    path("payment/verify/stripe/", views.verify_stripe_payment),
-    path("payment/verify/razorpay/", views.verify_razorpay_payment),
 
+   
 
     # ================= VENDOR =================
     path("vendor/orders/", VendorOrdersView.as_view()),
