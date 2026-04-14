@@ -2506,7 +2506,7 @@ class BookingPaymentDetailAPI(APIView):
     )
     def get(self, request, booking_id):
         try:
-            booking = Booking.objects.get(id=booking_id)
+            booking = Booking.objects.get(id=booking_id, customer__user=request.user)
             return Response({
                 "booking_id": booking.id,
                 "payment_status": booking.payment_status,
@@ -4957,7 +4957,7 @@ class BookingSummaryAPI(APIView):
     )
     def get(self, request, booking_id):
         try:
-            booking = Booking.objects.get(id=booking_id)
+            booking = Booking.objects.get(id=booking_id, customer__user=request.user)
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
@@ -5465,7 +5465,7 @@ from drf_yasg import openapi
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-
+from .utils import create_payment, can_create_payment
 payment_intent_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -5481,40 +5481,51 @@ class CreatePaymentIntentAPI(APIView):
         responses={200: "Payment Intent Created"}
     )
     def post(self, request, booking_id):
-
         try:
-            booking = Booking.objects.get(id=booking_id, user=request.user)
+            payment_type = request.data.get("payment_type")  # VISITING / FINAL
+            gateway = request.data.get("gateway", "STRIPE")
 
-            amount = booking.total_amount  # ✅ make sure this exists
-
-            # 🔥 CREATE PAYMENT INTENT
-            intent = stripe.PaymentIntent.create(
-                amount=int(float(amount) * 100),
-                currency="inr",
-                metadata={
-                    "booking_id": booking.id,
-                },
+            # ✅ FIXED: correct relation (IMPORTANT)
+            booking = get_object_or_404(
+                Booking,
+                id=booking_id,
+                customer__user=request.user   # 🔥 MAIN FIX
             )
 
-            # 🔥 SAVE PAYMENT
-            payment = Payment.objects.create(
-                booking=booking,
-                amount=amount,
-                gateway="STRIPE",
-                gateway_order_id=intent.id,
-                status="PENDING",
+            # ✅ Validation (already correct in your utils)
+            can_create, error = can_create_payment(
+                booking,
+                payment_type,
+                request.user
             )
+
+            if not can_create:
+                return Response({
+                    "error": error
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # ✅ Create payment
+            payment, data = create_payment(
+                booking,
+                payment_type,
+                gateway
+            )
+
+            if not payment:
+                return Response({
+                    "error": data
+                }, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({
-                "client_secret": intent.client_secret,
-                "payment_intent_id": intent.id
-            })
-
-        except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=404)
+                "message": "Payment intent created",
+                "payment_id": payment.id,
+                "data": data
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 verify_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
@@ -5596,7 +5607,7 @@ class BookingPaymentDetailAPI(APIView):
     )
     def get(self, request, booking_id):
         try:
-            booking = Booking.objects.get(id=booking_id)
+            booking = Booking.objects.get(id=booking_id, customer__user=request.user)
             return Response({
                 "booking_id": booking.id,
                 "payment_status": booking.payment_status,
