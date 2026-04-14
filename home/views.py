@@ -5474,7 +5474,7 @@ payment_intent_schema = openapi.Schema(
 )
 
 class CreatePaymentIntentAPI(APIView):
-
+    permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
         operation_description="Create Stripe Payment Intent",
         request_body=payment_intent_schema,
@@ -5482,50 +5482,85 @@ class CreatePaymentIntentAPI(APIView):
     )
     def post(self, request, booking_id):
         try:
-            payment_type = request.data.get("payment_type")  # VISITING / FINAL
+            # ✅ GET BOOKING (FIXED USER ISSUE ALSO)
+            booking = Booking.objects.get(
+                id=booking_id,
+                customer__user=request.user
+            )
+
+            # ✅ GET DATA FROM FRONTEND
+            payment_type = request.data.get("payment_type")
             gateway = request.data.get("gateway", "STRIPE")
 
-            # ✅ FIXED: correct relation (IMPORTANT)
-            booking = get_object_or_404(
-                Booking,
-                id=booking_id,
-                customer__user=request.user   # 🔥 MAIN FIX
-            )
+            # ===============================
+            # 🔥 VALIDATION (ADD HERE)
+            # ===============================
 
-            # ✅ Validation (already correct in your utils)
-            can_create, error = can_create_payment(
-                booking,
-                payment_type,
-                request.user
-            )
-
-            if not can_create:
+            # ❌ Missing payment_type
+            if payment_type not in ["VISITING", "FINAL"]:
                 return Response({
-                    "error": error
-                }, status=status.HTTP_400_BAD_REQUEST)
+                    "error": "payment_type required (VISITING or FINAL)"
+                }, status=400)
 
-            # ✅ Create payment
+            # ❌ Prevent duplicate VISITING payment
+            if payment_type == "VISITING":
+                if Payment.objects.filter(
+                    booking=booking,
+                    payment_type="VISITING",
+                    status="SUCCESS"
+                ).exists():
+                    return Response({
+                        "error": "Visiting already paid"
+                    }, status=400)
+
+            # ❌ Prevent FINAL before VISITING
+            if payment_type == "FINAL":
+                if not Payment.objects.filter(
+                    booking=booking,
+                    payment_type="VISITING",
+                    status="SUCCESS"
+                ).exists():
+                    return Response({
+                        "error": "Complete visiting payment first"
+                    }, status=400)
+
+                # ❌ Prevent duplicate FINAL payment
+                if Payment.objects.filter(
+                    booking=booking,
+                    payment_type="FINAL",
+                    status="SUCCESS"
+                ).exists():
+                    return Response({
+                        "error": "Final payment already done"
+                    }, status=400)
+
+            # ===============================
+            # 💳 CREATE PAYMENT (MAIN LOGIC)
+            # ===============================
             payment, data = create_payment(
-                booking,
-                payment_type,
-                gateway
+                booking=booking,
+                payment_type=payment_type,
+                gateway=gateway
             )
 
             if not payment:
-                return Response({
-                    "error": data
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": data}, status=400)
 
             return Response({
-                "message": "Payment intent created",
                 "payment_id": payment.id,
+                "payment_type": payment_type,
                 "data": data
-            }, status=status.HTTP_200_OK)
+            })
+
+        except Booking.DoesNotExist:
+            return Response({
+                "error": "Booking not found"
+            }, status=404)
 
         except Exception as e:
             return Response({
                 "error": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            }, status=500)    
 
 verify_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
@@ -6189,7 +6224,7 @@ def create_payment_view(request):
 
         payment, gateway_data = create_payment(
             booking=booking,
-            payment_type=payment_type,
+            payment_type=None,
             gateway=gateway
         )
 
