@@ -2650,7 +2650,10 @@ class PaymentCreateAPIView(APIView):
     )
     def post(self, request, booking_id):
 
-        serializer = PaymentGatewaySerializer(data=request.data)
+        serializer = PaymentGatewaySerializer(
+    data=request.data,
+    context={"booking_id": booking_id}   # 🔥 THIS LINE FIXES ERROR
+)
         serializer.is_valid(raise_exception=True)
 
         payment_type = serializer.validated_data["payment_type"]
