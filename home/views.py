@@ -5535,20 +5535,25 @@ class CreatePaymentIntentAPI(APIView):
             # 💳 CREATE PAYMENT
             # ==========================================
 
-            payment, data = create_payment(
-                booking=booking,
-                payment_type=payment_type,
-                gateway=gateway
-            )
+            payment, data = create_payment(booking,payment_type,gateway)
 
             if not payment:
                 return Response({"error": data}, status=400)
 
-            return Response({
-                "payment_id": payment.id,
-                "payment_type": payment_type,  # 🔥 frontend will know type
-                "data": data
-            })
+            if gateway == "STRIPE":
+                return Response({
+                    "payment_id": payment.id,
+                    "payment_type": payment_type,
+                "client_secret": data.get("client_secret")   # 🔥 MAIN FIX
+    })
+
+            # ✅ RAZORPAY (keep as it is)
+            elif gateway == "RAZORPAY":
+                return Response({
+                    "payment_id": payment.id,
+                    "payment_type": payment_type,
+                     "order": data
+             })
 
         except Booking.DoesNotExist:
             return Response({
