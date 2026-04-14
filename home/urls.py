@@ -148,7 +148,7 @@ urlpatterns = [
     ),
     path(
     "booking/<int:booking_id>/payment/verify/",
-    views.verify_stripe_payment,
+    VerifyStripePaymentAPI.as_view(),
 ),
     # ================= PAYMENT =================
     path("booking/<int:booking_id>/payment/", views.BookingPaymentDetailAPI.as_view()),
