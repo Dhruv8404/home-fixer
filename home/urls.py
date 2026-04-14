@@ -149,7 +149,7 @@ path("booking/<int:booking_id>/payment/can-create/",  views.PaymentCanCreateAPI.
 path("booking/<int:booking_id>/payment/create-intent/", CreatePaymentIntentAPI.as_view()),
 path("payment/verify/stripe/",                         views.verify_stripe_payment),
 path("payment/verify/razorpay/",                       views.verify_razorpay_payment),
-
+path("booking/<int:booking_id>/payment", views.PaymentAPI.as_view()),
     # ================= VENDOR =================
     path("vendor/orders/", VendorOrdersView.as_view()),
     path("vendor/order/<int:order_id>/accept/", VendorAcceptOrderAPI.as_view()),

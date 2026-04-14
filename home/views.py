@@ -6265,3 +6265,32 @@ class CreatePaymentIntentAPI(APIView):
             })
 
         return Response({"error": "Invalid gateway"}, status=400)
+
+class PaymentAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, booking_id):
+        try:
+            booking = Booking.objects.prefetch_related('payments').get(
+                id=booking_id,
+                customer__user=request.user
+            )
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        visiting_paid = booking.payments.filter(
+            payment_type__in=["VISITING", "VISITING_SERVICE"],
+            status="PAID"
+        ).exists()
+
+        final_paid = booking.payments.filter(
+            payment_type="FINAL",
+            status="PAID"
+        ).exists()
+
+        return Response({
+            "visiting_paid": visiting_paid,
+            "final_paid": final_paid,
+            "can_create_visiting": not visiting_paid,
+            "can_create_final": visiting_paid and not final_paid
+        })
