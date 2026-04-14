@@ -51,7 +51,7 @@ def get_tokens(user):
 from .serializers import EmailPasswordLoginSerializer
 from django.contrib.auth import authenticate
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
+
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []  # No authentication required for email/password login
@@ -5596,47 +5596,53 @@ class VerifyStripePaymentAPI(APIView):
     )
     def post(self, request, booking_id):
         try:
+            # ✅ GET DATA SAFELY
             payment_intent_id = request.data.get("payment_intent_id")
 
+            # ❌ FIX 1: CHECK NULL
             if not payment_intent_id:
                 return Response({
-                    "error": "payment_intent_id required"
+                    "error": "payment_intent_id is required"
                 }, status=400)
 
-            # 🔥 GET PAYMENT FROM DB
+            print("Received payment_intent_id:", payment_intent_id)
+
+            # ✅ STRIPE FETCH
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+
+            # ❌ FIX 2: CHECK STATUS
+            if intent["status"] != "succeeded":
+                return Response({
+                    "error": "Payment not successful",
+                    "status": intent["status"]
+                }, status=400)
+
+            # ✅ GET PAYMENT FROM DB
             payment = Payment.objects.filter(
                 gateway_order_id=payment_intent_id
             ).first()
 
+            # ❌ FIX 3: HANDLE NONE
             if not payment:
                 return Response({
-                    "error": "Payment not found"
+                    "error": "Payment not found in DB"
                 }, status=404)
 
-            # 🔥 VERIFY FROM STRIPE
-            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-
-            if intent["status"] != "succeeded":
-                return Response({
-                    "error": "Payment not successful"
-                }, status=400)
-
-            # ✅ UPDATE PAYMENT STATUS
+            # ✅ UPDATE PAYMENT
             payment.status = "SUCCESS"
             payment.save()
 
             return Response({
-                "message": "Payment verified successfully",
-                "payment_type": payment.payment_type
+                "message": "Payment verified successfully"
             })
 
         except Exception as e:
+            print("ERROR:", str(e))  # 🔥 DEBUG
             return Response({
                 "error": str(e)
             }, status=500)
 
 
-            
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
@@ -6181,7 +6187,7 @@ from .models import Payment, Booking
 from .utils import create_payment
 
 # Stripe config
-stripe.api_key = settings.STRIPE_SECRET_KEY
+
 
 # ==============================
 # 🔥 COMMON INPUT SCHEMA
