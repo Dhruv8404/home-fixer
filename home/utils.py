@@ -335,18 +335,19 @@ def create_payment(booking, payment_type, gateway):
                     "payment_type": payment_type
                 },
                 automatic_payment_methods={
-                    "enabled": True,
-                    "allow_redirects": "never"
+                    "enabled": True
+                    
                 }
             )
-
+        
             # SAVE INTENT ID
             payment.gateway_order_id = intent["id"]
             payment.save(update_fields=["gateway_order_id"])
 
             # ✅ IMPORTANT FIX
             return payment, {
-                "client_secret": intent["client_secret"]
+                "client_secret": intent["client_secret"],
+                 "payment_intent_id": intent["id"]
             }
 
     except Exception as e:

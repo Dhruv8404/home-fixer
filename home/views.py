@@ -5475,14 +5475,17 @@ payment_intent_schema = openapi.Schema(
 
 class CreatePaymentIntentAPI(APIView):
     permission_classes = [IsAuthenticated]
+
     @swagger_auto_schema(
-        operation_description="Create Stripe Payment Intent",
+        operation_description="Create Payment Intent",
         request_body=payment_intent_schema,
         responses={200: "Payment Intent Created"}
     )
     def post(self, request, booking_id):
         try:
+            # ===============================
             # ✅ GET BOOKING
+            # ===============================
             booking = Booking.objects.get(
                 id=booking_id,
                 customer__user=request.user
@@ -5490,10 +5493,9 @@ class CreatePaymentIntentAPI(APIView):
 
             gateway = request.data.get("gateway", "STRIPE")
 
-            # ==========================================
-            # 🔥 AUTO DECIDE PAYMENT TYPE (MAIN LOGIC)
-            # ==========================================
-
+            # ===============================
+            # 🔥 AUTO DECIDE PAYMENT TYPE
+            # ===============================
             visiting_paid = Payment.objects.filter(
                 booking=booking,
                 payment_type="VISITING",
@@ -5506,54 +5508,64 @@ class CreatePaymentIntentAPI(APIView):
                 status="SUCCESS"
             ).exists()
 
-            # ✅ STEP 1 → VISITING PAYMENT
             if not visiting_paid:
                 payment_type = "VISITING"
-
-            # ✅ STEP 2 → FINAL PAYMENT
             elif visiting_paid and not final_paid:
                 payment_type = "FINAL"
-
-            # ❌ BOTH DONE
             else:
                 return Response({
                     "error": "All payments already completed"
                 }, status=400)
 
-            # ==========================================
-            # 🔒 EXTRA VALIDATION (SAFE)
-            # ==========================================
-
+            # ===============================
+            # 🔒 VALIDATION FOR FINAL
+            # ===============================
             if payment_type == "FINAL":
-                # Ensure service added before final payment
                 if booking.service_charge == 0 and booking.items.count() == 0:
                     return Response({
-                        "error": "No service or products added for final payment"
+                        "error": "No service or products added"
                     }, status=400)
 
-            # ==========================================
+            # ===============================
             # 💳 CREATE PAYMENT
-            # ==========================================
-
-            payment, data = create_payment(booking,payment_type,gateway)
+            # ===============================
+            payment, data = create_payment(
+                booking=booking,
+                payment_type=payment_type,
+                gateway=gateway
+            )
 
             if not payment:
                 return Response({"error": data}, status=400)
 
+            # ===============================
+            # 🔥 STRIPE RESPONSE FIX
+            # ===============================
             if gateway == "STRIPE":
+                client_secret = data.get("client_secret")
+
+                # ❌ CRITICAL CHECK
+                if not client_secret:
+                    return Response({
+                        "error": "Stripe client_secret not generated"
+                    }, status=500)
+
                 return Response({
                     "payment_id": payment.id,
                     "payment_type": payment_type,
-                "client_secret": data.get("client_secret")   # 🔥 MAIN FIX
-    })
+                    "client_secret": client_secret,
+                    "payment_intent_id": data.get("payment_intent_id")
+                })
 
-            # ✅ RAZORPAY (keep as it is)
+            # ===============================
+            # 💳 RAZORPAY RESPONSE
+            # ===============================
             elif gateway == "RAZORPAY":
                 return Response({
                     "payment_id": payment.id,
                     "payment_type": payment_type,
-                     "order": data
-             })
+                    "order": data
+                })
 
         except Booking.DoesNotExist:
             return Response({
@@ -5564,8 +5576,6 @@ class CreatePaymentIntentAPI(APIView):
             return Response({
                 "error": str(e)
             }, status=500)
-        
-
 
 
 verify_schema = openapi.Schema(
