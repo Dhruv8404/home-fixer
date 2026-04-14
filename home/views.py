@@ -5583,49 +5583,54 @@ class VerifyStripePaymentAPI(APIView):
         request_body=verify_schema,
         responses={200: "Payment Verified"}
     )
-    def post(self, request):
-
-        payment_intent_id = request.data.get("payment_intent_id")
-
-        if not payment_intent_id:
-            return Response({"error": "PaymentIntent ID required"}, status=400)
-
+    def post(self, request, booking_id):
         try:
-            # 🔥 GET FROM STRIPE
-            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            # ✅ GET BOOKING
+            booking = Booking.objects.get(id=booking_id)
 
-            # 🔥 GET FROM DB
-            payment = Payment.objects.get(
-                gateway_order_id=payment_intent_id
+            # ✅ CREATE PAYMENT ENTRY
+            payment = Payment.objects.create(
+                booking=booking,
+                customer=booking.customer,
+                payment_type="VISITING",  # or dynamic
+                gateway="STRIPE",
+                status="PENDING"
             )
 
-            # 🔥 SUCCESS CHECK
-            if intent.status == "succeeded":
+            # ✅ CONVERT TO PAISE (IMPORTANT)
+            amount = int(payment.amount * 100)
 
-                # ✅ AMOUNT VALIDATION
-                if intent.amount_received != int(payment.amount * 100):
-                    return Response({"error": "Amount mismatch"}, status=400)
+            # ✅ CREATE STRIPE PAYMENT INTENT
+            intent = stripe.PaymentIntent.create(
+                amount=amount,
+                currency="inr",
+                metadata={
+                    "booking_id": booking.id,
+                    "payment_id": payment.id
+                }
+            )
 
-                payment.status = "SUCCESS"
-                payment.save()
+            # ✅ SAVE STRIPE ID
+            payment.gateway_order_id = intent.id
+            payment.save(update_fields=["gateway_order_id"])
 
-                return Response({
-                    "message": "Payment successful"
-                })
+            # ✅ RETURN CLIENT SECRET (THIS WAS YOUR MAIN ERROR)
+            return Response({
+                "payment_id": payment.id,
+                "client_secret": intent.client_secret,
+                "amount": str(payment.amount),
+                "currency": "INR"
+            }, status=status.HTTP_200_OK)
 
-            else:
-                payment.status = "FAILED"
-                payment.save()
-
-                return Response({
-                    "error": "Payment failed"
-                }, status=400)
-
-        except Payment.DoesNotExist:
-            return Response({"error": "Payment not found"}, status=404)
+        except Booking.DoesNotExist:
+            return Response({
+                "error": "Booking not found"
+            }, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            return Response({
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
