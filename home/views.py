@@ -5401,18 +5401,26 @@ class CreatePaymentIntentAPI(APIView):
     def post(self, request, booking_id):
 
         try:
-            # YOUR EXISTING LOGIC HERE
-            booking = Booking.objects.get(id=booking_id)
+            booking = Booking.objects.get(id=booking_id, user=request.user)
 
-            amount = request.data.get("amount", booking.total_cost)
+            amount = booking.total_amount  # ✅ make sure this exists
 
+            # 🔥 CREATE PAYMENT INTENT
             intent = stripe.PaymentIntent.create(
-                amount=int(amount * 100),
+                amount=int(float(amount) * 100),
                 currency="inr",
-                metadata={"booking_id": booking.id},
-                # 🔥 AUTO CONFIRM FOR SWAGGER TESTING
-                
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"}
+                metadata={
+                    "booking_id": booking.id,
+                },
+            )
+
+            # 🔥 SAVE PAYMENT
+            payment = Payment.objects.create(
+                booking=booking,
+                amount=amount,
+                gateway="STRIPE",
+                gateway_order_id=intent.id,
+                status="PENDING",
             )
 
             return Response({
@@ -5420,9 +5428,11 @@ class CreatePaymentIntentAPI(APIView):
                 "payment_intent_id": intent.id
             })
 
-        except Exception as e:
-            return Response({"error": str(e)}, status=400)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
 
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
 verify_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
@@ -5439,28 +5449,49 @@ class VerifyStripePaymentAPI(APIView):
         request_body=verify_schema,
         responses={200: "Payment Verified"}
     )
-    def post(self, request, booking_id):
+    def post(self, request):
+
+        payment_intent_id = request.data.get("payment_intent_id")
+
+        if not payment_intent_id:
+            return Response({"error": "PaymentIntent ID required"}, status=400)
 
         try:
-            intent_id = request.data.get("payment_intent_id")
-            if intent_id and "_secret_" in intent_id:
-                intent_id = intent_id.split("_secret_")[0]
+            # 🔥 GET FROM STRIPE
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
 
-            intent = stripe.PaymentIntent.retrieve(intent_id)
+            # 🔥 GET FROM DB
+            payment = Payment.objects.get(
+                gateway_order_id=payment_intent_id
+            )
 
+            # 🔥 SUCCESS CHECK
             if intent.status == "succeeded":
-                booking = Booking.objects.get(id=booking_id)
-                booking.payment_status = "PAID"
-                booking.save()
 
-                return Response({"message": "Payment successful"})
+                # ✅ AMOUNT VALIDATION
+                if intent.amount_received != int(payment.amount * 100):
+                    return Response({"error": "Amount mismatch"}, status=400)
 
-            return Response({"message": "Payment not completed"}, status=400)
+                payment.status = "SUCCESS"
+                payment.save()
+
+                return Response({
+                    "message": "Payment successful"
+                })
+
+            else:
+                payment.status = "FAILED"
+                payment.save()
+
+                return Response({
+                    "error": "Payment failed"
+                }, status=400)
+
+        except Payment.DoesNotExist:
+            return Response({"error": "Payment not found"}, status=404)
 
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
-
-
+            return Response({"error": str(e)}, status=500)
 
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -6146,33 +6177,52 @@ stripe_verify_schema = openapi.Schema(
     request_body=stripe_verify_schema,
     responses={200: "Payment Verified"}
 )
-@api_view(['POST'])
+
+@api_view(["POST"])
 def verify_stripe_payment(request):
     try:
-        intent_id = request.data.get("payment_intent_id")
+        payment_intent_id = request.data.get("payment_intent_id")
 
-        if not intent_id:
-            return Response({"error": "payment_intent_id required"}, status=400)
+        if not payment_intent_id:
+            return Response({
+                "error": "payment_intent_id is required"
+            }, status=400)
 
-        if "_secret_" in intent_id:
-            intent_id = intent_id.split("_secret_")[0]
+        # 🔥 Fetch payment intent from Stripe
+        intent = stripe.PaymentIntent.retrieve(payment_intent_id)
 
-        intent = stripe.PaymentIntent.retrieve(intent_id)
+        # 🔥 Find payment in DB
+        try:
+            payment = Payment.objects.get(gateway_order_id=payment_intent_id)
+        except Payment.DoesNotExist:
+            return Response({
+                "error": "Payment not found"
+            }, status=404)
 
-        payment = Payment.objects.get(gateway_order_id=intent_id)
-
+        # 🔥 Check status
         if intent.status == "succeeded":
-            payment.status = "PAID"
+            payment.status = "SUCCESS"
+            payment.save()
+
+            return Response({
+                "message": "Payment successful",
+                "status": "SUCCESS"
+            })
+
         else:
             payment.status = "FAILED"
+            payment.save()
 
-        payment.save()
-
-        return Response({"message": "Stripe payment verified"})
+            return Response({
+                "message": "Payment failed",
+                "status": intent.status
+            })
 
     except Exception as e:
-        return Response({"error": str(e)}, status=400)
-
+        return Response({
+            "error": str(e)
+        }, status=500)
+    
 class ServicemanCompleteBookingAPI(APIView):
     """
     Serviceman marks a booking as completed.
