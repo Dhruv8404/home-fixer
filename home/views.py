@@ -5587,6 +5587,7 @@ verify_schema = openapi.Schema(
 )
 
 class VerifyStripePaymentAPI(APIView):
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_description="Verify Stripe Payment",
@@ -5595,53 +5596,47 @@ class VerifyStripePaymentAPI(APIView):
     )
     def post(self, request, booking_id):
         try:
-            # ✅ GET BOOKING
-            booking = Booking.objects.get(id=booking_id)
+            payment_intent_id = request.data.get("payment_intent_id")
 
-            # ✅ CREATE PAYMENT ENTRY
-            payment = Payment.objects.create(
-                booking=booking,
-                customer=booking.customer,
-                payment_type="VISITING",  # or dynamic
-                gateway="STRIPE",
-                status="PENDING"
-            )
+            if not payment_intent_id:
+                return Response({
+                    "error": "payment_intent_id required"
+                }, status=400)
 
-            # ✅ CONVERT TO PAISE (IMPORTANT)
-            amount = int(payment.amount * 100)
+            # 🔥 GET PAYMENT FROM DB
+            payment = Payment.objects.filter(
+                gateway_order_id=payment_intent_id
+            ).first()
 
-            # ✅ CREATE STRIPE PAYMENT INTENT
-            intent = stripe.PaymentIntent.create(
-                amount=amount,
-                currency="inr",
-                metadata={
-                    "booking_id": booking.id,
-                    "payment_id": payment.id
-                }
-            )
+            if not payment:
+                return Response({
+                    "error": "Payment not found"
+                }, status=404)
 
-            # ✅ SAVE STRIPE ID
-            payment.gateway_order_id = intent.id
-            payment.save(update_fields=["gateway_order_id"])
+            # 🔥 VERIFY FROM STRIPE
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
 
-            # ✅ RETURN CLIENT SECRET (THIS WAS YOUR MAIN ERROR)
+            if intent["status"] != "succeeded":
+                return Response({
+                    "error": "Payment not successful"
+                }, status=400)
+
+            # ✅ UPDATE PAYMENT STATUS
+            payment.status = "SUCCESS"
+            payment.save()
+
             return Response({
-                "payment_id": payment.id,
-                "client_secret":intent["client_secret"],
-                "amount": str(payment.amount),
-                "currency": "INR"
-            }, status=status.HTTP_200_OK)
-
-        except Booking.DoesNotExist:
-            return Response({
-                "error": "Booking not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+                "message": "Payment verified successfully",
+                "payment_type": payment.payment_type
+            })
 
         except Exception as e:
             return Response({
                 "error": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            }, status=500)
 
+
+            
 class BookingPaymentDetailAPI(APIView):
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
