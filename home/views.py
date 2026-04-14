@@ -5480,63 +5480,61 @@ class CreatePaymentIntentAPI(APIView):
         request_body=payment_intent_schema,
         responses={200: "Payment Intent Created"}
     )
-    def post(self, request, booking_id):
+   def post(self, request, booking_id):
         try:
-            # ✅ GET BOOKING (FIXED USER ISSUE ALSO)
+            # ✅ GET BOOKING
             booking = Booking.objects.get(
                 id=booking_id,
                 customer__user=request.user
             )
 
-            # ✅ GET DATA FROM FRONTEND
-            payment_type = request.data.get("payment_type")
             gateway = request.data.get("gateway", "STRIPE")
 
-            # ===============================
-            # 🔥 VALIDATION (ADD HERE)
-            # ===============================
+            # ==========================================
+            # 🔥 AUTO DECIDE PAYMENT TYPE (MAIN LOGIC)
+            # ==========================================
 
-            # ❌ Missing payment_type
-            if payment_type not in ["VISITING", "FINAL"]:
+            visiting_paid = Payment.objects.filter(
+                booking=booking,
+                payment_type="VISITING",
+                status="SUCCESS"
+            ).exists()
+
+            final_paid = Payment.objects.filter(
+                booking=booking,
+                payment_type="FINAL",
+                status="SUCCESS"
+            ).exists()
+
+            # ✅ STEP 1 → VISITING PAYMENT
+            if not visiting_paid:
+                payment_type = "VISITING"
+
+            # ✅ STEP 2 → FINAL PAYMENT
+            elif visiting_paid and not final_paid:
+                payment_type = "FINAL"
+
+            # ❌ BOTH DONE
+            else:
                 return Response({
-                    "error": "payment_type required (VISITING or FINAL)"
+                    "error": "All payments already completed"
                 }, status=400)
 
-            # ❌ Prevent duplicate VISITING payment
-            if payment_type == "VISITING":
-                if Payment.objects.filter(
-                    booking=booking,
-                    payment_type="VISITING",
-                    status="SUCCESS"
-                ).exists():
-                    return Response({
-                        "error": "Visiting already paid"
-                    }, status=400)
+            # ==========================================
+            # 🔒 EXTRA VALIDATION (SAFE)
+            # ==========================================
 
-            # ❌ Prevent FINAL before VISITING
             if payment_type == "FINAL":
-                if not Payment.objects.filter(
-                    booking=booking,
-                    payment_type="VISITING",
-                    status="SUCCESS"
-                ).exists():
+                # Ensure service added before final payment
+                if booking.service_charge == 0 and booking.items.count() == 0:
                     return Response({
-                        "error": "Complete visiting payment first"
+                        "error": "No service or products added for final payment"
                     }, status=400)
 
-                # ❌ Prevent duplicate FINAL payment
-                if Payment.objects.filter(
-                    booking=booking,
-                    payment_type="FINAL",
-                    status="SUCCESS"
-                ).exists():
-                    return Response({
-                        "error": "Final payment already done"
-                    }, status=400)
+            # ==========================================
+            # 💳 CREATE PAYMENT
+            # ==========================================
 
-            # ===============================
-            # 💳 CREATE PAYMENT (MAIN LOGIC)
-            # ===============================
             payment, data = create_payment(
                 booking=booking,
                 payment_type=payment_type,
@@ -5548,7 +5546,7 @@ class CreatePaymentIntentAPI(APIView):
 
             return Response({
                 "payment_id": payment.id,
-                "payment_type": payment_type,
+                "payment_type": payment_type,  # 🔥 frontend will know type
                 "data": data
             })
 
@@ -5560,8 +5558,11 @@ class CreatePaymentIntentAPI(APIView):
         except Exception as e:
             return Response({
                 "error": str(e)
-            }, status=500)    
+            }, status=500)
+        
 
+
+        
 verify_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     required=["payment_intent_id"],
