@@ -141,11 +141,6 @@ urlpatterns = [
     path("booking/<int:booking_id>/update-product-service/", UpdateProductAndServiceChargeAPI.as_view()),
     path("booking/<int:booking_id>/approve/", ApproveBookingItemsAPI.as_view()),
 
-    path(
-        "booking/<int:booking_id>/payment/create-intent/",
-        CreatePaymentIntentAPI.as_view(),
-    ),
-
     # ================= PAYMENT =================
     
 # ===== PAYMENT (clean) =====
