@@ -6151,7 +6151,10 @@ def verify_stripe_payment(request):
     try:
         intent_id = request.data.get("payment_intent_id")
 
-        if intent_id and "_secret_" in intent_id:
+        if not intent_id:
+            return Response({"error": "payment_intent_id required"}, status=400)
+
+        if "_secret_" in intent_id:
             intent_id = intent_id.split("_secret_")[0]
 
         intent = stripe.PaymentIntent.retrieve(intent_id)
@@ -6169,7 +6172,6 @@ def verify_stripe_payment(request):
 
     except Exception as e:
         return Response({"error": str(e)}, status=400)
-
 
 class ServicemanCompleteBookingAPI(APIView):
     """
