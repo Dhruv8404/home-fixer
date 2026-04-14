@@ -41,7 +41,6 @@ from .views import (
     ProductCreateAPI,
     ProductUpdateAPI,
     VendorTrackingAPI,
-    VerifyStripePaymentAPI,
     AddProductAndServiceAPI,
     ApproveBookingItemsAPI,
     VendorOrdersView,
@@ -146,18 +145,15 @@ urlpatterns = [
         "booking/<int:booking_id>/payment/create-intent/",
         CreatePaymentIntentAPI.as_view(),
     ),
-    path(
-    "booking/<int:booking_id>/payment/verify/",
-    views.verify_stripe_payment,
-),
-    # ================= PAYMENT =================
-    path("booking/<int:booking_id>/payment/", views.BookingPaymentDetailAPI.as_view()),
-    path("booking/<int:booking_id>/payment/status/", views.PaymentStatusAPI.as_view()),
-    path("booking/<int:booking_id>/payment/can-create/", views.PaymentCanCreateAPI.as_view()),
-    path("payment/create/", views.create_payment_view),
-    path("payment/verify/stripe/", views.verify_stripe_payment),
-    path("payment/verify/razorpay/", views.verify_razorpay_payment),
 
+    # ================= PAYMENT =================
+    
+# ===== PAYMENT (clean) =====
+path("booking/<int:booking_id>/payment/status/",      views.PaymentStatusAPI.as_view()),
+path("booking/<int:booking_id>/payment/can-create/",  views.PaymentCanCreateAPI.as_view()),
+path("booking/<int:booking_id>/payment/create-intent/", CreatePaymentIntentAPI.as_view()),
+path("payment/verify/stripe/",                         views.verify_stripe_payment),
+path("payment/verify/razorpay/",                       views.verify_razorpay_payment),
 
     # ================= VENDOR =================
     path("vendor/orders/", VendorOrdersView.as_view()),
