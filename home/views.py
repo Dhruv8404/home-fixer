@@ -5480,7 +5480,7 @@ class CreatePaymentIntentAPI(APIView):
         request_body=payment_intent_schema,
         responses={200: "Payment Intent Created"}
     )
-   def post(self, request, booking_id):
+    def post(self, request, booking_id):
         try:
             # ✅ GET BOOKING
             booking = Booking.objects.get(
@@ -5562,7 +5562,7 @@ class CreatePaymentIntentAPI(APIView):
         
 
 
-        
+
 verify_schema = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     required=["payment_intent_id"],
