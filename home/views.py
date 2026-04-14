@@ -2780,42 +2780,33 @@ class VerifyPaymentAPIView(APIView):
     )
     def post(self, request, payment_id):
 
-        serializer = PaymentVerifySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        payment = Payment.objects.get(id=payment_id)
 
-        gateway = serializer.validated_data["gateway"]
+        if payment.status == "PAID":
+            return Response({"message": "Already paid"})
 
-        try:
-            payment = Payment.objects.get(id=payment_id)
-        except Payment.DoesNotExist:
-            return Response({"error": "Payment not found"}, status=404)
+        gateway = request.data.get("gateway")
 
-        # ✅ VERIFY
         if gateway == "STRIPE":
-            from .utils import verify_stripe_payment
-            success = verify_stripe_payment(payment, serializer.validated_data)
+            success = verify_stripe_payment(payment, request.data)
 
         elif gateway == "RAZORPAY":
-            from .utils import verify_razorpay_payment
-            success = verify_razorpay_payment(payment, serializer.validated_data)
+            success = verify_razorpay_payment(payment, request.data)
 
         if not success:
-            return Response({
-                "status": "FAILED",
-                "message": "Payment verification failed"
-            }, status=400)
+            payment.status = "FAILED"
+            payment.save()
+            return Response({"error": "Payment failed"}, status=400)
 
-        # ✅ UPDATE STATUS
-        payment.status = Payment.Status.SUCCESS
-        payment.save()
+        # ✅ VERY IMPORTANT
+        payment.status = "PAID"
+        payment.save()   # 🔥 THIS WILL AUTO UPDATE BOOKING
 
         return Response({
-            "status": "SUCCESS",
-            "message": "Payment verified successfully",
-            "payment_id": payment.id,
-            "amount": payment.amount
+            "message": "Payment successful",
+            "booking_status": payment.booking.status,
+            "payment_status": payment.booking.payment_status
         })
-
 
 class VendorTrackingAPI(APIView):
     permission_classes = [IsAuthenticated]
