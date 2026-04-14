@@ -2682,13 +2682,17 @@ class PaymentCreateAPIView(APIView):
             status="PENDING"
         )
 
-        # 🔥 GATEWAY-SPECIFIC CREATION
+# 🔥 GATEWAY-SPECIFIC CREATION
         try:
             if gateway == "STRIPE":
                 result = create_stripe_payment(payment)
+                result["amount"] = float(payment.amount)
+                result["booking_id"] = booking.id
                 return Response(result, status=201)
             elif gateway == "RAZORPAY":
                 result = create_razorpay_order(payment)
+                result["amount"] = float(payment.amount) 
+                result["booking_id"] = booking.id
                 return Response(result, status=201)
             else:
                 return Response({"error": "Invalid gateway"}, status=400)
