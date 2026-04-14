@@ -16,6 +16,7 @@ from drf_yasg import openapi
 from .models import Booking, BookingItem, OrderItem, Payment, User, CustomerProfile, ServicemanProfile, VendorProfile, EmailOTP,Category,Service,Product
 from .serializers import (
     BookingCreateSerializer,
+    PaymentCanCreateSerializer,
     SendOTPSerializer,
     VendorNearbySerializer,
     VerifyOTPSerializer,
@@ -2520,33 +2521,9 @@ class PaymentStatusAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Get 2-Step Payment Status",
-        operation_description="""
-🔥 Complete payment state overview:
-
-Returns:
-- visiting_paid: true/false  
-- final_paid: true/false
-- next_payment_type: "VISITING" | "FINAL" | null
-- next_amount: calculated amount
-- all payments list
-        """,
-        responses={
-            200: openapi.Response(
-                description="Payment Status",
-                examples={
-                    "application/json": {
-                        "booking_id": 1,
-                        "visiting_paid": false,
-                        "final_paid": false,
-                        "next_payment_type": "VISITING",
-                        "next_amount": "520.00",
-                        "payments": [...]
-                    }
-                }
-            )
-        },
-        security=[{"Bearer": []}],
+        operation_summary="Get booking total (service + approved products)",
+        responses={200: openapi.Response("Booking Summary")},
+     security=[{"Bearer": []}],
         tags=["Payment"]
     )
     def get(self, request, booking_id):
@@ -2570,6 +2547,7 @@ Returns:
         else:
             return Response({"error": "Access denied"}, status=403)
 
+        from .serializers import PaymentStatusSerializer
         serializer = PaymentStatusSerializer(booking)
         return Response(serializer.data)
 
@@ -2589,22 +2567,7 @@ Returns:
 {can_create: true/false, reason: "...", amount: 520.00}
         """,
         request_body=PaymentCanCreateSerializer,
-        responses={
-            200: openapi.Response(
-                examples={
-                    "can_create": {
-                        "can_create": true,
-                        "reason": "",
-                        "amount": "520.00"
-                    },
-                    "cannot_create": {
-                        "can_create": false,
-                        "reason": "Visiting payment already completed",
-                        "amount": "520.00"
-                    }
-                }
-            )
-        },
+        responses={200: openapi.Response("Booking Summary")},
         security=[{"Bearer": []}],
         tags=["Payment"]
     )
@@ -2625,6 +2588,7 @@ Returns:
         else:
             return Response({"error": "Only customers can create payments"}, status=403)
 
+        from .serializers import PaymentCanCreateSerializer
         serializer = PaymentCanCreateSerializer(
             data=request.data,
             context={"booking": booking, "request": request}
