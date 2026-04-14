@@ -51,7 +51,7 @@ def get_tokens(user):
 from .serializers import EmailPasswordLoginSerializer
 from django.contrib.auth import authenticate
 
-
+stripe.api_key = settings.STRIPE_SECRET_KEY
 class EmailPasswordLoginAPI(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []  # No authentication required for email/password login
@@ -6187,7 +6187,7 @@ from .models import Payment, Booking
 from .utils import create_payment
 
 # Stripe config
-
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # ==============================
 # 🔥 COMMON INPUT SCHEMA
