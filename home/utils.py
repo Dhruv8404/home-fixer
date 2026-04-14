@@ -12,7 +12,7 @@ import razorpay
 import stripe
 import cloudinary.uploader
 
-from .models import EmailOTP, MaterialOrder, Payment
+from .models import Booking, EmailOTP, MaterialOrder, Payment
 
 # ================== CONFIG ==================
 OTP_EXPIRY_MINUTES = 5
@@ -242,6 +242,50 @@ def auto_reject_orders():
         if timezone.now() - order.created_at >= timedelta(minutes=2):
             order.status = "AUTO_REJECTED"
             order.save()
+
+
+# ================== PAYMENT VALIDATION (NEW) ==================
+def can_create_payment(booking, payment_type, user):
+    """
+    Centralized validation for 2-step payment system:
+    1. Customer ownership check
+    2. No duplicate VISITING payment
+    3. FINAL only after VISITING paid
+    4. No duplicate FINAL payment
+    """
+    # 1. Customer ownership
+    if booking.customer.user != user:
+        return False, "This booking does not belong to you"
+    
+    # 2. VISITING: Prevent duplicate
+    if payment_type == "VISITING":
+        if booking.payments.filter(
+            payment_type__in=["VISITING", "VISITING_SERVICE"], 
+            status="PAID"
+        ).exists():
+            return False, "Visiting payment already completed"
+    
+    # 3. FINAL: Must have visiting paid first
+    elif payment_type == "FINAL":
+        # Check visiting paid
+        if not booking.payments.filter(
+            payment_type__in=["VISITING", "VISITING_SERVICE"], 
+            status="PAID"
+        ).exists():
+            return False, "Complete visiting payment first"
+        
+        # Prevent duplicate final
+        if booking.payments.filter(
+            payment_type="FINAL", 
+            status="PAID"
+        ).exists():
+            return False, "Final payment already completed"
+    
+    # 4. Booking must be in valid state
+    if booking.status in ["CANCELLED", "COMPLETED"]:
+        return False, "Booking cannot accept payments"
+    
+    return True, None
 
 
 # ================== PAYMENT (🔥 MAIN LOGIC) ==================

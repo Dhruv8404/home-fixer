@@ -840,3 +840,117 @@ class BookingHistorySerializer(serializers.ModelSerializer):
             "problem_title", "visiting_charge", "service_charge", "platform_fee",
             "product_total", "total_cost", "created_at", "customer_name", "serviceman_name", "items"
         ]
+
+# ================= 2-STEP PAYMENT SYSTEM SERIALIZERS =================
+class PaymentStatusSerializer(serializers.Serializer):
+    """
+    GET /booking/<id>/payment/status/
+    Current payment state overview
+    """
+    booking_id = serializers.IntegerField(source="id", read_only=True)
+    payment_status = serializers.CharField(source="payment_status", read_only=True)
+    status = serializers.CharField(read_only=True)
+    
+    visiting_paid = serializers.SerializerMethodField()
+    final_paid = serializers.SerializerMethodField()
+    next_payment_type = serializers.SerializerMethodField()
+    next_amount = serializers.SerializerMethodField()
+    
+    payments = serializers.SerializerMethodField()
+    
+    def get_visiting_paid(self, booking):
+        return booking.payments.filter(
+            payment_type__in=["VISITING", "VISITING_SERVICE"], 
+            status="PAID"
+        ).exists()
+    
+    def get_final_paid(self, booking):
+        return booking.payments.filter(
+            payment_type="FINAL", 
+            status="PAID"
+        ).exists()
+    
+    def get_next_payment_type(self, booking):
+        if not self.get_visiting_paid(booking):
+            return "VISITING"
+        if not self.get_final_paid(booking):
+            return "FINAL"
+        return None
+    
+    def get_next_amount(self, booking):
+        next_type = self.get_next_payment_type(booking)
+        if next_type == "VISITING":
+            # Trigger payment creation to calculate amount
+            payment = Payment.objects.create(
+                booking=booking,
+                customer=booking.customer,
+                payment_type="VISITING",
+                gateway="STRIPE",  # dummy
+                status="PENDING"
+            )
+            amount = payment.amount
+            payment.delete()  # cleanup
+            return amount
+        elif next_type == "FINAL":
+            payment = Payment.objects.create(
+                booking=booking,
+                customer=booking.customer,
+                payment_type="FINAL",
+                gateway="STRIPE",  # dummy
+                status="PENDING"
+            )
+            amount = payment.amount
+            payment.delete()  # cleanup
+            return amount
+        return None
+    
+    def get_payments(self, booking):
+        return [
+            {
+                "id": p.id,
+                "type": p.payment_type,
+                "amount": str(p.amount),
+                "status": p.status,
+                "created": p.created_at,
+                "gateway_order_id": p.gateway_order_id
+            }
+            for p in booking.payments.all()
+        ]
+
+
+class PaymentCanCreateSerializer(serializers.Serializer):
+    """
+    POST /booking/<id>/payment/can-create/
+    Input: {payment_type: "VISITING|FINAL"}
+    """
+    payment_type = serializers.ChoiceField(choices=["VISITING", "FINAL"])
+    
+    # Output fields (read-only)
+    can_create = serializers.BooleanField(read_only=True)
+    reason = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(read_only=True, max_digits=10, decimal_places=2)
+    
+    def validate(self, data):
+        booking = self.context["booking"]
+        payment_type = data["payment_type"]
+        user = self.context["request"].user
+        
+        from .utils import can_create_payment
+        can, reason = can_create_payment(booking, payment_type, user)
+        
+        # Create temp payment to calculate amount
+        temp_payment = Payment.objects.create(
+            booking=booking,
+            customer=booking.customer,
+            payment_type=payment_type,
+            gateway="STRIPE",  # dummy
+            status="PENDING"
+        )
+        amount = temp_payment.amount
+        temp_payment.delete()
+        
+        data["can_create"] = can
+        data["reason"] = reason
+        data["amount"] = amount
+        
+        return data

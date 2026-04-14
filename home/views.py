@@ -2515,6 +2515,124 @@ class BookingPaymentDetailAPI(APIView):
             return Response({"detail": "Booking not found"}, status=404)
 
 
+# 🔥 NEW: 2-STEP PAYMENT STATUS API (Step 3/7)
+class PaymentStatusAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get 2-Step Payment Status",
+        operation_description="""
+🔥 Complete payment state overview:
+
+Returns:
+- visiting_paid: true/false  
+- final_paid: true/false
+- next_payment_type: "VISITING" | "FINAL" | null
+- next_amount: calculated amount
+- all payments list
+        """,
+        responses={
+            200: openapi.Response(
+                description="Payment Status",
+                examples={
+                    "application/json": {
+                        "booking_id": 1,
+                        "visiting_paid": false,
+                        "final_paid": false,
+                        "next_payment_type": "VISITING",
+                        "next_amount": "520.00",
+                        "payments": [...]
+                    }
+                }
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def get(self, request, booking_id):
+        """
+        GET /booking/<id>/payment/status/
+        Shows complete 2-step payment state
+        """
+        try:
+            # Prefetch payments for efficiency
+            booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        # Access control: customer or serviceman only
+        if request.user.role == "CUSTOMER":
+            if booking.customer.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+        elif request.user.role == "SERVICEMAN":
+            if booking.serviceman.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+        else:
+            return Response({"error": "Access denied"}, status=403)
+
+        serializer = PaymentStatusSerializer(booking)
+        return Response(serializer.data)
+
+
+# 🔥 NEW: PAYMENT CAN CREATE API (Step 4/7)  
+class PaymentCanCreateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Check if Payment Can Be Created",
+        operation_description="""
+🔥 Pre-flight validation for payment creation:
+
+POST {payment_type: "VISITING|FINAL"}
+
+Returns:
+{can_create: true/false, reason: "...", amount: 520.00}
+        """,
+        request_body=PaymentCanCreateSerializer,
+        responses={
+            200: openapi.Response(
+                examples={
+                    "can_create": {
+                        "can_create": true,
+                        "reason": "",
+                        "amount": "520.00"
+                    },
+                    "cannot_create": {
+                        "can_create": false,
+                        "reason": "Visiting payment already completed",
+                        "amount": "520.00"
+                    }
+                }
+            )
+        },
+        security=[{"Bearer": []}],
+        tags=["Payment"]
+    )
+    def post(self, request, booking_id):
+        """
+        POST /booking/<id>/payment/can-create/
+        {payment_type: "VISITING|FINAL"}
+        """
+        try:
+            booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=404)
+
+        # Access control
+        if request.user.role == "CUSTOMER":
+            if booking.customer.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+        else:
+            return Response({"error": "Only customers can create payments"}, status=403)
+
+        serializer = PaymentCanCreateSerializer(
+            data=request.data,
+            context={"booking": booking, "request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data)
+
+
 
 
 
@@ -6068,12 +6186,31 @@ payment_request_schema = openapi.Schema(
 )
 @api_view(['POST'])
 def create_payment_view(request):
+    """
+    🔥 ENHANCED: 2-Step Payment Creation with Validation (Step 5/7)
+    
+    POST /payment/create/
+    {booking_id: 1, payment_type: "VISITING|FINAL", gateway: "RAZORPAY|STRIPE"}
+    """
     try:
         booking_id = request.data.get("booking_id")
         payment_type = request.data.get("payment_type")
         gateway = request.data.get("gateway")
 
-        booking = Booking.objects.get(id=booking_id)
+        if not all([booking_id, payment_type, gateway]):
+            return Response({"error": "booking_id, payment_type, gateway required"}, status=400)
+
+        booking = Booking.objects.prefetch_related('payments').get(id=booking_id)
+        
+        # 🔥 NEW VALIDATION (Prevents duplicates + enforces order)
+        from .utils import can_create_payment
+        can_create, reason = can_create_payment(booking, payment_type, request.user)
+        
+        if not can_create:
+            return Response({
+                "error": reason,
+                "payment_type": payment_type
+            }, status=400)
 
         payment, gateway_data = create_payment(
             booking=booking,
@@ -6090,9 +6227,9 @@ def create_payment_view(request):
                 "payment_id": payment.id,
                 "gateway": "RAZORPAY",
                 "order_id": gateway_data["id"],
-                "amount": payment.amount,
+                "amount": str(payment.amount),  # Frontend expects string
                 "currency": "INR",
-                "platform_fee": booking.platform_fee
+                "platform_fee": str(booking.platform_fee)
             })
 
         # Stripe response
@@ -6100,11 +6237,15 @@ def create_payment_view(request):
             return Response({
                 "payment_id": payment.id,
                 "gateway": "STRIPE",
-                "client_secret": gateway_data.client_secret,
-                "amount": payment.amount,
-                "platform_fee": booking.platform_fee
+                "client_secret": gateway_data["client_secret"],
+                "amount": str(payment.amount),
+                "platform_fee": str(booking.platform_fee)
             })
 
+    except Booking.DoesNotExist:
+        return Response({"error": "Booking not found"}, status=404)
+    except ValueError as ve:
+        return Response({"error": str(ve)}, status=400)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
