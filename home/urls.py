@@ -104,8 +104,6 @@ urlpatterns = [
 
     # 🔥 NEW PAYMENT ENDPOINTS
     path("booking/<int:booking_id>/payment/create/", views.PaymentCreateAPIView.as_view()),
-    path("payment/stripe/verify/", views.StripePaymentVerifyAPIView.as_view()),
-    path("payment/razorpay/verify/", views.RazorpayPaymentVerifyAPIView.as_view()),
     path(
         "payment/<int:payment_id>/verify/",
         VerifyPaymentAPIView.as_view(),

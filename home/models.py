@@ -551,10 +551,9 @@ class MaterialOrder(models.Model):
 
     
     def update_total_cost(self):
-        approved_total = self.items.filter(
-        approval_status="APPROVED"
-    ).aggregate(
-        total=Sum(F("quantity") * F("product_price"))
+    
+        approved_total = self.items.aggregate(
+        total=Sum(F("quantity") * F("price_at_order"))
     )["total"] or 0
 
         self.total_cost = approved_total
