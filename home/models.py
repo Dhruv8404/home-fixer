@@ -708,7 +708,7 @@ class Payment(models.Model):
     gateway_order_id = models.CharField(max_length=255, null=True, blank=True)
     gateway_payment_id = models.CharField(max_length=255, null=True, blank=True)
     gateway_signature = models.TextField(null=True, blank=True)
-
+    stripe_payment_intent_id = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 

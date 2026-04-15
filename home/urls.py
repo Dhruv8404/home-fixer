@@ -5,12 +5,15 @@ from .views import (
     BookingTrackingAPI,
     AdminVendorControlAPI,
     CategoryNearbyServicemanAPI,
+    CreatePaymentAPIView,
+    CreateRazorpayPaymentAPIView,
     CustomerBookingHistoryAPI,
     CustomerCancelBookingAPI,
     LoginSendOTPAPI,
     LoginVerifyOTPAPI,
     MarkVendorCollectedAPI,
     NearbyVendorAPI,
+    PaymentStatusAPIView,
     ProductDeleteAPI,
     ProductListAPI,
     RegisterSendOTPAPI,
@@ -45,6 +48,8 @@ from .views import (
     ApproveBookingItemsAPI,
     VendorOrdersView,
     VerifyPaymentAPIView,
+    VerifyRazorpayPaymentAPIView,
+    VerifyStripePaymentAPIView,
 )
 
 from .admin_views import (
@@ -104,11 +109,12 @@ urlpatterns = [
 
     # 🔥 NEW PAYMENT ENDPOINTS
     path("booking/<int:booking_id>/payment/create/", views.PaymentCreateAPIView.as_view()),
-    path(
-        "payment/<int:payment_id>/verify/",
-        VerifyPaymentAPIView.as_view(),
-        name="verify-payment"
-    ),
+    path('payment/<int:payment_id>/verify/stripe/', VerifyStripePaymentAPIView.as_view()),
+    path('payment/<int:payment_id>/verify/razorpay/', VerifyRazorpayPaymentAPIView.as_view()),
+    path('booking/<int:booking_id>/payment/razorpay/create/', CreateRazorpayPaymentAPIView.as_view()),
+    path('payment/<int:payment_id>/status/', PaymentStatusAPIView.as_view()),
+ 
+
     # ================= CATEGORY =================
     path("categories/", CategoryListAPI.as_view()),
 
