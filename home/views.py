@@ -2604,65 +2604,25 @@ Returns:
 
 # ================= NEW PAYMENT CREATE VIEW =================
 class PaymentCreateAPIView(APIView):
-    """
-    🔥 MAIN ENDPOINT: Create Stripe/Razorpay payment
-    
-    POST /booking/{booking_id}/payment/create/
-    {
-        "payment_type": "VISITING", 
-        "gateway": "STRIPE"
-    }
-    
-    Returns gateway-specific response:
-    - Stripe: {client_secret, payment_intent_id}
-    - Razorpay: {order_id, amount, key_id}
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="Create Payment (Stripe/Razorpay)",
-        operation_description="""
-1. Validates business rules (can_create_payment)
-2. Creates Payment record  
-3. Creates gateway order (Stripe PaymentIntent / Razorpay Order)
-4. Returns gateway response
-        
-**Flow:**
-- VISITING → booking.payment_status = PARTIAL
-- FINAL → booking.payment_status = PAID  
-        """,
         request_body=PaymentGatewaySerializer,
-        responses={
-            201: openapi.Response(
-                description="Payment created successfully",
-                examples={
-                    "stripe": {
-                        "client_secret": "pi_xxx_secret_xxx",
-                        "payment_intent_id": "pi_xxx"
-                    },
-                    "razorpay": {
-                        "order_id": "order_xxx", 
-                        "amount": "520.00",
-                        "key_id": "rzp_xxx"
-                    }
-                }
-            )
-        },
         security=[{"Bearer": []}],
         tags=["Payment"]
     )
     def post(self, request, booking_id):
 
+        # 🔥 FIXED CONTEXT
         serializer = PaymentGatewaySerializer(
-    data=request.data,
-    context={"booking_id": booking_id}   # 🔥 THIS LINE FIXES ERROR
-)
+            data=request.data,
+            context={"booking_id": booking_id}
+        )
         serializer.is_valid(raise_exception=True)
 
         payment_type = serializer.validated_data["payment_type"]
         gateway = serializer.validated_data["gateway"]
-
-        user = request.user
 
         # ✅ Get booking
         try:
@@ -2673,14 +2633,13 @@ class PaymentCreateAPIView(APIView):
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
-        # ✅ Validate
-        from .utils import can_create_payment
-        allowed, message = can_create_payment(booking, payment_type, user)
+        # ✅ Validate business logic
+        allowed, message = can_create_payment(booking, payment_type, request.user)
 
         if not allowed:
             return Response({"error": message}, status=400)
 
-        # ✅ Create payment
+        # ✅ Create Payment
         payment = Payment.objects.create(
             booking=booking,
             customer=booking.customer,
@@ -2688,14 +2647,15 @@ class PaymentCreateAPIView(APIView):
             gateway=gateway
         )
 
-        # ✅ Gateway call
+        # ✅ Call gateway
         if gateway == "STRIPE":
-            from .utils import create_stripe_payment
             gateway_data = create_stripe_payment(payment)
 
         elif gateway == "RAZORPAY":
-            from .utils import create_razorpay_order
             gateway_data = create_razorpay_order(payment)
+
+        else:
+            return Response({"error": "Invalid gateway"}, status=400)
 
         return Response({
             "payment_id": payment.id,
@@ -2703,8 +2663,9 @@ class PaymentCreateAPIView(APIView):
             "gateway": payment.gateway,
             "payment_type": payment.payment_type,
             "data": gateway_data
-        })
+        }, status=201)
 
+        
 # ================= STRIPE VERIFY =================
 class StripePaymentVerifyAPIView(APIView):
     """
