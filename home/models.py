@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.utils import timezone
+from django.db.models import F, Sum
 from cloudinary.models import CloudinaryField
 from django.contrib.auth import get_user_model
 #=============user model manager==================
@@ -352,7 +353,7 @@ class Booking(models.Model):
         if self.pk:
             product_total = self.items.filter(
                 approval_status="APPROVED"
-            ).aggregate(total=models.Sum("total_price"))["total"] or 0
+            ).aggregate(total=Sum(F("quantity") * F("product_price")))["total"] or 0
         else:
             product_total = 0
 
@@ -440,7 +441,8 @@ class BookingItem(models.Model):
 
     is_ordered = models.BooleanField(default=False)
 
-    def get_total_price(self):
+    @property
+    def total_price(self):
         return self.quantity * self.product_price
 
     # 🔥 OPTIMIZED SAVE
@@ -547,15 +549,17 @@ class MaterialOrder(models.Model):
             self.tracking_code = f"TRK-{str(uuid.uuid4())[:8].upper()}"
         super().save(*args, **kwargs)
 
+    
     def update_total_cost(self):
-        from django.db.models import Sum, F
+        approved_total = self.items.filter(
+        approval_status="APPROVED"
+    ).aggregate(
+        total=Sum(F("quantity") * F("product_price"))
+    )["total"] or 0
 
-        total = self.items.aggregate(
-            total=Sum(F('quantity') * F('price_at_order'))
-        )['total'] or 0
-        self.total_cost = total
+        self.total_cost = approved_total
         self.save(update_fields=["total_cost"])
-
+    
     def __str__(self):
         return f"Order #{self.id}"
 

@@ -249,37 +249,57 @@ def auto_reject_orders():
 def can_create_payment(booking, payment_type, user):
     """
     Business logic validation before payment creation
+    🔥 Supports retry for FAILED payments
     """
+
+    # 🔒 Only customers
     if user.role != "CUSTOMER":
         return False, "Only customers can create payments"
-    
+
     if booking.customer.user != user:
         return False, "Not your booking"
-    
+
     if booking.status == "CANCELLED":
         return False, "Booking cancelled"
-    
-    # Check previous payments for this type
+
+    # =========================
+    # 🔍 CHECK EXISTING PAYMENT
+    # =========================
     existing = booking.payments.filter(
-        payment_type=payment_type,
-        status__in=["PENDING", "PAID"]
-    ).exists()
-    
-    if existing:
-        return False, f"{payment_type} payment already exists"
-    
-    # VISITING first, then FINAL
-    if payment_type == "FINAL":
-        # Must have visiting payment first
-        visiting_paid = booking.payments.filter(
-            payment_type__in=["VISITING", "VISITING_SERVICE"],
-            status="PAID"
-        ).exists()
-        
-        if not visiting_paid:
+        payment_type=payment_type
+    ).order_by('-created_at').first()
+
+    # 🚫 Already PAID → block
+    if existing and existing.status == "PAID":
+        return False, f"{payment_type} payment already completed"
+
+    # 🔁 FAILED → allow retry
+    if existing and existing.status == "FAILED":
+        return True, "Retry allowed"
+
+    # ⏳ PENDING → block duplicate
+    if existing and existing.status == "PENDING":
+        return False, f"{payment_type} payment already in progress"
+
+    # =========================
+    # 🔥 BUSINESS FLOW RULES
+    # =========================
+
+    if payment_type == "VISITING":
+        # Only if not already partially paid
+        if booking.payment_status not in ["PENDING"]:
+            return False, "VISITING payment already done"
+
+        return True, "OK"
+
+    elif payment_type == "FINAL":
+        # Must complete visiting first
+        if booking.payment_status != "PARTIAL":
             return False, "Complete visiting payment first"
-    
-    return True, "OK"
+
+        return True, "OK"
+
+    return False, "Invalid payment type"
 
 
 def create_stripe_payment(payment):
