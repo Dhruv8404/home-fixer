@@ -803,3 +803,13 @@ class OrderItem(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SystemSetting(models.Model):
+    key = models.CharField(max_length=100, unique=True, db_index=True)
+    value = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.key}: {self.value}"
