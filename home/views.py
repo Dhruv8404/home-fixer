@@ -6124,7 +6124,7 @@ class MarkVendorCollectedAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="Mark Vendor Items as Collected by Vendor",
+        operation_summary="Mark Vendor Items as Collected by Serviceman",
         manual_parameters=[
             openapi.Parameter(
                 'order_id',
@@ -6144,11 +6144,11 @@ class MarkVendorCollectedAPI(APIView):
     )
     def patch(self, request, order_id):
 
-        if request.user.role != "VENDOR":
-            return Response({"error": "Only vendor allowed to scan code"}, status=403)
+        if request.user.role != "SERVICEMAN":
+            return Response({"error": "Only serviceman allowed to scan code"}, status=403)
 
         tracking_code = request.data.get('tracking_code')
-        order = get_object_or_404(MaterialOrder, id=order_id, vendor__user=request.user)
+        order = get_object_or_404(MaterialOrder, id=order_id, serviceman__user=request.user)
 
         if tracking_code and tracking_code != order.tracking_code:
             return Response({"error": "Invalid tracking code"}, status=400)
@@ -6167,9 +6167,13 @@ class MarkVendorCollectedAPI(APIView):
         order.status = "COLLECTED"
         order.save()
 
+        # Check for next vendor location
+        tracking_response = VendorTrackingAPI().get(request, booking_id=order.booking.id)
+        
         return Response({
             "message": "Vendor items collected successfully",
-            "order_id": order.id
+            "order_id": order.id,
+            "next_tracking_info": tracking_response.data
         })
 
 
