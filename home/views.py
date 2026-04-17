@@ -2142,7 +2142,7 @@ class BookingSummaryAPI(APIView):
         items = booking.items.all()
 
         product_total = sum([
-            item.get_total_price()
+            item.total_price
             for item in items
             if item.approval_status == "APPROVED"
         ])
@@ -2162,7 +2162,7 @@ class BookingSummaryAPI(APIView):
                     "product_price": item.product_price,
                     "product_image": item.product_image,
                     "quantity": item.quantity,
-                    "total_price": item.get_total_price(),
+                    "total_price": item.total_price,
                     "status": item.approval_status   # ✅ shows PENDING
                 }
                 for item in items
@@ -5499,7 +5499,6 @@ class BookingSummaryAPI(APIView):
 
         total = (
             booking.service_charge +
-            booking.platform_fee +
             product_total
         )
 
@@ -5507,7 +5506,6 @@ class BookingSummaryAPI(APIView):
             "status": True,
             "service_type": booking.service_type,
             "service_charge": booking.service_charge,
-            "platform_fee": booking.platform_fee,
             "product_total": product_total,
             "total": total,
             "vendor_orders": vendor_orders,
@@ -6326,7 +6324,7 @@ class ApproveBookingItemsAPI(APIView):
                     price_at_order=item.product_price
                 )
 
-                total += item.get_total_price()
+                total += item.total_price
                 item.is_ordered = True
                 item.save()
 
