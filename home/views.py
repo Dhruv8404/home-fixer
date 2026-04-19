@@ -1405,16 +1405,35 @@ class ProductListAPI(APIView):
     @swagger_auto_schema(
         operation_summary="Get All Available Products",
         operation_description="Returns all products with stock_quantity > 0.",
+        manual_parameters=[
+            openapi.Parameter("booking_id", openapi.IN_QUERY, type=openapi.TYPE_INTEGER, required=False, description="Exclude vendors auto-rejected for this booking"),
+        ],
         responses={200: ProductSerializer(many=True)},
         tags=["Products"]
     )
-
     def get(self, request):
 
         products = Product.objects.filter(stock_quantity__gt=0)
 
-        serializer = ProductSerializer(products, many=True)
+        booking_id = request.query_params.get("booking_id")
+        if booking_id:
+            try:
+                from .models import MaterialOrder
+                pending_orders = MaterialOrder.objects.filter(booking_id=booking_id, status='REQUESTED')
+                for order in pending_orders:
+                    order.check_auto_reject()
 
+                rejected_vendor_ids = MaterialOrder.objects.filter(
+                    booking_id=booking_id,
+                    status="AUTO_REJECTED"
+                ).values_list("vendor_id", flat=True)
+                
+                if rejected_vendor_ids.exists():
+                    products = products.exclude(vendor_id__in=rejected_vendor_ids)
+            except Exception:
+                pass
+
+        serializer = ProductSerializer(products, many=True)
         return Response(serializer.data)
 
 
@@ -2066,6 +2085,10 @@ class NearbyProductAPI(APIView):
         booking_id = request.query_params.get("booking_id")
         if booking_id:
             try:
+                pending_orders = MaterialOrder.objects.filter(booking_id=booking_id, status='REQUESTED')
+                for order in pending_orders:
+                    order.check_auto_reject()
+
                 rejected_vendor_ids = MaterialOrder.objects.filter(
                     booking_id=booking_id,
                     status="AUTO_REJECTED"
@@ -2075,14 +2098,12 @@ class NearbyProductAPI(APIView):
             except Exception:
                 pass
 
-        products = []
+        vendor_distances = []
 
         # =========================
-        # 3. LOOP VENDORS SAFELY
+        # 3. CALCULATE DISTANCES
         # =========================
         for vendor in vendors:
-
-            # extra safety (VERY IMPORTANT)
             if not vendor.store_lat or not vendor.store_long:
                 continue
 
@@ -2093,20 +2114,30 @@ class NearbyProductAPI(APIView):
                     float(vendor.store_lat),
                     float(vendor.store_long)
                 )
+                vendor_distances.append((distance, vendor))
             except Exception:
-                continue  # skip invalid vendor
+                continue
 
-            # =========================
-            # 4. DISTANCE FILTER
-            # =========================
-            if distance <= 10:   # you can increase to 20 for testing
+        # =========================
+        # 4. DISTANCE FILTER (PROGRESSIVE)
+        # =========================
+        selected_vendors = []
+        for radius in [2, 4, 6, 8, 10]:
+            current_band_vendors = [v for d, v in vendor_distances if d <= radius]
+            if len(current_band_vendors) >= 5:
+                selected_vendors = current_band_vendors
+                break
+        
+        if not selected_vendors:
+            selected_vendors = [v for d, v in vendor_distances if d <= 10]
 
-                vendor_products = Product.objects.filter(
-                    vendor=vendor,
-                    stock_quantity__gt=0
-                )
-
-                products.extend(vendor_products)
+        products = []
+        for vendor in selected_vendors:
+            vendor_products = Product.objects.filter(
+                vendor=vendor,
+                stock_quantity__gt=0
+            )
+            products.extend(vendor_products)
 
         # =========================
         # 5. REMOVE DUPLICATES

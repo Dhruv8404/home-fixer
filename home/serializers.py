@@ -817,9 +817,12 @@ class BookingItemHistorySerializer(serializers.ModelSerializer):
     item_total = serializers.SerializerMethodField()
 
     def get_product_image(self, obj):
-        if obj.product and obj.product.image:
-            return obj.product.image.url
-        return obj.product_image
+        try:
+            if obj.product and obj.product.image:
+                return obj.product.image.url
+        except Exception:
+            pass
+        return getattr(obj, 'product_image', None)
 
     def get_item_total(self, obj):
         return obj.quantity * obj.product_price
@@ -833,11 +836,21 @@ class BookingItemHistorySerializer(serializers.ModelSerializer):
 
 class BookingHistorySerializer(serializers.ModelSerializer):
     items = BookingItemHistorySerializer(many=True, read_only=True)
-    customer_name = serializers.CharField(source="customer.user.name", read_only=True)
-    serviceman_name = serializers.CharField(source="serviceman.user.name", read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    serviceman_name = serializers.SerializerMethodField()
     product_total = serializers.SerializerMethodField()
 
-    
+    def get_customer_name(self, obj):
+        try:
+            return obj.customer.user.name if obj.customer and obj.customer.user else None
+        except Exception:
+            return None
+
+    def get_serviceman_name(self, obj):
+        try:
+            return obj.serviceman.user.name if obj.serviceman and obj.serviceman.user else None
+        except Exception:
+            return None
 
     def get_product_total(self, obj):
         return obj.items.filter(
