@@ -6531,7 +6531,13 @@ class CustomerBookingHistoryAPI(ListAPIView):
     serializer_class = BookingHistorySerializer
 
     def get_queryset(self):
-        return Booking.objects.filter(customer__user=self.request.user).order_by("-created_at")
+        return Booking.objects.filter(
+            customer__user=self.request.user
+        ).select_related(
+            "customer__user", "serviceman__user"
+        ).prefetch_related(
+            "items__product"
+        ).order_by("-created_at")
 
 class ServicemanBookingHistoryAPI(ListAPIView):
     """
@@ -6541,5 +6547,11 @@ class ServicemanBookingHistoryAPI(ListAPIView):
     serializer_class = BookingHistorySerializer
 
     def get_queryset(self):
-        return Booking.objects.filter(serviceman__user=self.request.user).order_by("-created_at")
+        return Booking.objects.filter(
+            serviceman__user=self.request.user
+        ).select_related(
+            "customer__user", "serviceman__user"
+        ).prefetch_related(
+            "items__product"
+        ).order_by("-created_at")
 

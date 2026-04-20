@@ -853,11 +853,11 @@ class BookingHistorySerializer(serializers.ModelSerializer):
             return None
 
     def get_product_total(self, obj):
-        return obj.items.filter(
-            approval_status="APPROVED"
-        ).aggregate(
-            total=Sum(F('quantity') * F('product_price'))
-        )['total'] or 0
+        return sum(
+            item.quantity * item.product_price
+            for item in obj.items.all()
+            if item.approval_status == "APPROVED"
+        )
 
     class Meta:
         model = Booking
