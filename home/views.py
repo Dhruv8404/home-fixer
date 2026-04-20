@@ -6451,7 +6451,11 @@ class VendorOrdersView(APIView):
         operation_description="Returns all order items for logged-in vendor"
     )
     def get(self, request):
-        vendor = VendorProfile.objects.get(user=request.user)
+        if getattr(request.user, 'role', None) != "VENDOR":
+            return Response({"error": "Only vendor allowed"}, status=403)
+
+        from django.shortcuts import get_object_or_404
+        vendor = get_object_or_404(VendorProfile, user=request.user)
 
         orders = MaterialOrder.objects.filter(vendor=vendor).order_by('-created_at')
 
