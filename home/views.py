@@ -6511,7 +6511,12 @@ class ServicemanCompleteBookingAPI(APIView):
 
     @swagger_auto_schema(
         operation_summary="Mark booking as completed by serviceman",
-        operation_description="Serviceman confirms the service is finished. Status becomes COMPLETED and payment status Paid.",
+        operation_description="""
+Serviceman confirms the service is finished. Status becomes COMPLETED and payment status Paid.
+
+❌ Restrictions:
+- Only the assigned serviceman can complete their own booking. Other servicemen will receive a 404 error.
+""",
         responses={200: "Success"}
     )
     def post(self, request, booking_id):
