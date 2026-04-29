@@ -6515,7 +6515,8 @@ class ServicemanCompleteBookingAPI(APIView):
         responses={200: "Success"}
     )
     def post(self, request, booking_id):
-        booking = get_object_or_404(Booking, id=booking_id)
+        # Ensure the booking belongs to the logged-in serviceman
+        booking = get_object_or_404(Booking, id=booking_id, serviceman__user=request.user)
 
         if booking.status in ["COMPLETED", "CANCELLED"]:
             return Response({"error": "Booking is already completed or cancelled"}, status=400)
