@@ -258,7 +258,6 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'PERSIST_AUTH': True,   # 🔥 REQUIRED
     'REFETCH_SCHEMA_WITH_AUTH': True,
-    'DEFAULT_API_URL': os.getenv('SWAGGER_API_URL','https://home-fixer-production.up.railway.app'),
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',
@@ -268,7 +267,8 @@ SWAGGER_SETTINGS = {
         }
     },
 }
-
+USE_X_FORWARDED_HOST = True
+SECURE_SSL_REDIRECT = False
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer",
