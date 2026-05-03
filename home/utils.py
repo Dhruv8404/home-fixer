@@ -1,5 +1,5 @@
 import random
-from channels_redis import serializers
+from rest_framework import serializers
 import requests
 from datetime import timedelta
 from django.conf import settings

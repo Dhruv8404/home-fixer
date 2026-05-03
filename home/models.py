@@ -90,6 +90,7 @@ class ServicemanProfile(models.Model):
     is_online = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    is_available = models.BooleanField(default=True)
 
     current_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
     current_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)

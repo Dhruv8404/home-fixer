@@ -119,6 +119,16 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://home-fixer-production.up.railway.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CORS_ALLOW_HEADERS = [
     "accept",
     "accept-encoding",
@@ -157,29 +167,19 @@ WSGI_APPLICATION = 'home_fixer.wsgi.application'
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if DATABASE_URL:
-    DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=0,
-        )
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "homefixer"),
-            "USER": os.getenv("DB_USER", "postgres"),
-            "PASSWORD": os.getenv("DB_PASSWORD", "newpassword"),
-            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-            "PORT": os.getenv("DB_PORT", "5432"),
-         'OPTIONS': {
-            'sslmode': 'require',
-        },
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set. Please set it to your Neon DB connection string in your .env file.")
 
-        'CONN_MAX_AGE': 0,
-    }
+DATABASES = {
+    "default": dj_database_url.parse(
+        DATABASE_URL,
+        conn_max_age=0,
+    )
 }
+
+# Neon DB strictly requires SSL connections
+if 'postgres' in DATABASES['default'].get('ENGINE', ''):
+    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}
 
 
 # Password validation
@@ -254,7 +254,7 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'PERSIST_AUTH': True,   # 🔥 REQUIRED
     'REFETCH_SCHEMA_WITH_AUTH': True,
-    'DEFAULT_API_URL': os.getenv('SWAGGER_API_URL', 'https://home-fixer-production.up.railway.app'),
+    'DEFAULT_API_URL': os.getenv('SWAGGER_API_URL', 'http://127.0.0.1:8000' if DEBUG else 'https://home-fixer-production.up.railway.app'),
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',

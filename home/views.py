@@ -617,6 +617,7 @@ class NearbyServicemanAPI(APIView):
         queryset = ServicemanProfile.objects.select_related("user").filter(
             is_active=True,
             is_approved=True,
+            is_available=True,
             current_lat__isnull=False,
             current_long__isnull=False
         )
@@ -678,6 +679,7 @@ class CategoryNearbyServicemanAPI(APIView):
         queryset = ServicemanProfile.objects.select_related("user").filter(
             is_active=True,
             is_approved=True,
+            is_available=True,
             skills__contains=[category],   # 🔥 CATEGORY = SKILL
             current_lat__isnull=False,
             current_long__isnull=False
@@ -1277,6 +1279,8 @@ class ServicemanBookingActionAPI(APIView):
 
         if action == "accept":
             booking.status = "ACCEPTED"
+            serviceman.is_available = False
+            serviceman.save(update_fields=['is_available'])
 
         elif action == "reject":
             booking.status = "CANCELLED"
@@ -4604,6 +4608,8 @@ class ServicemanBookingActionAPI(APIView):
 
         if action == "accept":
             booking.status = "ACCEPTED"
+            serviceman.is_available = False
+            serviceman.save(update_fields=['is_available'])
 
         elif action == "reject":
             booking.status = "CANCELLED"
@@ -6529,6 +6535,12 @@ Serviceman confirms the service is finished. Status becomes COMPLETED and paymen
         booking.status = "COMPLETED"
         booking.payment_status = "PAID"
         booking.save()
+
+        # Mark serviceman as available
+        serviceman = booking.serviceman
+        if serviceman:
+            serviceman.is_available = True
+            serviceman.save(update_fields=['is_available'])
 
         return Response({"message": "Booking completed successfully", "status": booking.status})
 

@@ -149,6 +149,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             "is_online",
             "is_approved",
             "is_active",
+            "is_available",
             "current_lat",
             "current_long",
             "live_lat",
