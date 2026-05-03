@@ -66,11 +66,7 @@ env_hosts = os.getenv("ALLOWED_HOSTS")
 if env_hosts:
     ALLOWED_HOSTS = [host.strip() for host in env_hosts.split(',')]
 else:
-    ALLOWED_HOSTS = [
-        "home-fixer-production.up.railway.app",
-        "localhost",
-        "127.0.0.1",
-    ]
+    ALLOWED_HOSTS = ['*']
 
 # Application definition
 
