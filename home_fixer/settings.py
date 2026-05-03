@@ -57,8 +57,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 SECRET_KEY = os.environ["SECRET_KEY"]
-DEBUG = os.getenv("DEBUG", "False") == "True"
-
+#DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG=False
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
@@ -68,13 +68,7 @@ if env_hosts:
 else:
     ALLOWED_HOSTS = []
 
-ALLOWED_HOSTS.extend([
-    '*',
-    'home-fixer-production.up.railway.app',
-    'localhost',
-    '127.0.0.1'
-])
-
+ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "").split(",") if host]
 # Application definition
 
 INSTALLED_APPS = [
