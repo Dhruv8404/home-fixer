@@ -45,8 +45,8 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 OTP_PRINT_IN_TERMINAL = os.getenv("OTP_PRINT_IN_TERMINAL", "False") == "True"
 
 # Disable Resend
-USE_RESEND_FIRST = False
-
+USE_RESEND_FIRST = True
+#zx
 EMAIL_TIMEOUT = 15
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
