@@ -50,6 +50,7 @@ from .views import (
     VerifyPaymentAPIView,
     VerifyRazorpayPaymentAPIView,
     VerifyStripePaymentAPIView,
+    WalletPayForBookingAPI,
 )
 
 from .admin_views import (
@@ -171,4 +172,5 @@ urlpatterns = [
 
     # ================= WALLET =================
     path("wallet/", views.UserWalletAPI.as_view()),
+    path("wallet/booking/<int:booking_id>/pay/", WalletPayForBookingAPI.as_view(), name="wallet-pay-booking"),
 ]

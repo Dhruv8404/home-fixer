@@ -4608,20 +4608,63 @@ class ServicemanBookingActionAPI(APIView):
 
         action = request.data.get("action")
 
+        from django.db import transaction as db_transaction
+        from .models import Wallet, Transaction as WalletTransaction
+
         if action == "accept":
-            booking.status = "ACCEPTED"
-            serviceman.is_available = False
-            serviceman.save(update_fields=['is_available'])
+            with db_transaction.atomic():
+                booking.status = "ACCEPTED"
+                booking.save()
+
+                serviceman.is_available = False
+                serviceman.save(update_fields=["is_available"])
+
+                # CREDIT serviceman wallet with visiting charge on accept
+                visiting_amount = booking.visiting_charge
+                if visiting_amount and visiting_amount > 0:
+                    sm_wallet, _ = Wallet.objects.get_or_create(user=serviceman.user)
+                    sm_wallet.balance += visiting_amount
+                    sm_wallet.save(update_fields=["balance"])
+
+                    WalletTransaction.objects.create(
+                        wallet=sm_wallet,
+                        booking=booking,
+                        type="CREDIT",
+                        amount=visiting_amount,
+                        description=f"Visiting charge credit for Booking #{booking.id}"
+                    )
 
         elif action == "reject":
-            booking.status = "CANCELLED"
-            serviceman.is_available = True
-            serviceman.save(update_fields=['is_available'])
+            with db_transaction.atomic():
+                booking.status = "CANCELLED"
+                booking.save()
+
+                serviceman.is_available = True
+                serviceman.save(update_fields=["is_available"])
+
+                # FULL REFUND to customer: all paid amounts (visiting + platform fee)
+                paid_payments = booking.payments.filter(status="PAID")
+                refund_amount = sum(p.amount for p in paid_payments)
+
+                if refund_amount > 0:
+                    customer_user = booking.customer.user
+                    cust_wallet, _ = Wallet.objects.get_or_create(user=customer_user)
+                    cust_wallet.balance += refund_amount
+                    cust_wallet.save(update_fields=["balance"])
+
+                    WalletTransaction.objects.create(
+                        wallet=cust_wallet,
+                        booking=booking,
+                        type="CREDIT",
+                        amount=refund_amount,
+                        description=(
+                            f"Refund (visiting + platform fee) - "
+                            f"Booking #{booking.id} rejected by serviceman"
+                        )
+                    )
 
         else:
             return Response({"error": "Invalid action"}, status=400)
-
-        booking.save()
 
         return Response({
             "message": f"Booking {action}ed successfully",
@@ -6208,9 +6251,32 @@ class MarkVendorCollectedAPI(APIView):
         order.status = "COLLECTED"
         order.save()
 
+        # CREDIT vendor wallet with order total when serviceman collects
+        from .models import Wallet, Transaction as WalletTransaction
+        from django.db import transaction as db_transaction
+
+        with db_transaction.atomic():
+            vendor_user = order.vendor.user
+            order_total = order.total_cost
+            if order_total and order_total > 0:
+                vendor_wallet, _ = Wallet.objects.get_or_create(user=vendor_user)
+                vendor_wallet.balance += order_total
+                vendor_wallet.save(update_fields=["balance"])
+
+                WalletTransaction.objects.create(
+                    wallet=vendor_wallet,
+                    booking=order.booking,
+                    type="CREDIT",
+                    amount=order_total,
+                    description=(
+                        f"Product delivery payment for Order #{order.id} "
+                        f"(Booking #{order.booking.id if order.booking else 'N/A'})"
+                    )
+                )
+
         # Check for next vendor location
         tracking_response = VendorTrackingAPI().get(request, booking_id=order.booking.id)
-        
+
         return Response({
             "message": "Vendor items collected successfully",
             "order_id": order.id,
@@ -6494,57 +6560,61 @@ from .models import Payment, Booking
 # Stripe config
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
-# ==============================
-# 🔥 COMMON INPUT SCHEMA
-# ==============================
-payment_request_schema = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    required=["booking_id", "payment_type", "gateway"],
-    properties={
-        "booking_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-        "payment_type": openapi.Schema(
-            type=openapi.TYPE_STRING,
-            enum=["VISITING", "FINAL"]
-        ),
-        "gateway": openapi.Schema(
-            type=openapi.TYPE_STRING,
-            enum=["RAZORPAY", "STRIPE"]
-        ),
-    },
-)
-    
+
 class ServicemanCompleteBookingAPI(APIView):
     """
     Serviceman marks a booking as completed.
+    - Status becomes COMPLETED, payment status PAID.
+    - Serviceman is marked available again.
+    - Service charge is credited to serviceman wallet.
     """
     permission_classes = [IsAuthenticated, IsServiceman]
 
     @swagger_auto_schema(
         operation_summary="Mark booking as completed by serviceman",
         operation_description="""
-Serviceman confirms the service is finished. Status becomes COMPLETED and payment status Paid.
-
-❌ Restrictions:
-- Only the assigned serviceman can complete their own booking. Other servicemen will receive a 404 error.
+Serviceman confirms the service is finished.
+- Status -> COMPLETED, payment_status -> PAID
+- Serviceman wallet is credited with the service charge.
+- Only the assigned serviceman can complete their own booking.
 """,
-        responses={200: "Success"}
+        responses={200: "Success"},
+        security=[{"Bearer": []}],
+        tags=["Booking"]
     )
     def post(self, request, booking_id):
-        # Ensure the booking belongs to the logged-in serviceman
+        from django.db import transaction as db_transaction
+        from .models import Wallet, Transaction as WalletTransaction
+
         booking = get_object_or_404(Booking, id=booking_id, serviceman__user=request.user)
 
         if booking.status in ["COMPLETED", "CANCELLED"]:
             return Response({"error": "Booking is already completed or cancelled"}, status=400)
 
-        booking.status = "COMPLETED"
-        booking.payment_status = "PAID"
-        booking.save()
+        with db_transaction.atomic():
+            booking.status = "COMPLETED"
+            booking.payment_status = "PAID"
+            booking.save()
 
-        # Mark serviceman as available
-        serviceman = booking.serviceman
-        if serviceman:
-            serviceman.is_available = True
-            serviceman.save(update_fields=['is_available'])
+            serviceman = booking.serviceman
+            if serviceman:
+                serviceman.is_available = True
+                serviceman.save(update_fields=["is_available"])
+
+                # CREDIT serviceman wallet with service charge on completion
+                service_amount = booking.service_charge
+                if service_amount and service_amount > 0:
+                    sm_wallet, _ = Wallet.objects.get_or_create(user=serviceman.user)
+                    sm_wallet.balance += service_amount
+                    sm_wallet.save(update_fields=["balance"])
+
+                    WalletTransaction.objects.create(
+                        wallet=sm_wallet,
+                        booking=booking,
+                        type="CREDIT",
+                        amount=service_amount,
+                        description=f"Service charge credit for Booking #{booking.id}"
+                    )
 
         return Response({"message": "Booking completed successfully", "status": booking.status})
 
@@ -6565,6 +6635,7 @@ class CustomerBookingHistoryAPI(ListAPIView):
             "items__product"
         ).order_by("-created_at")
 
+
 class ServicemanBookingHistoryAPI(ListAPIView):
     """
     Get all bookings (including cancelled) for the logged-in serviceman.
@@ -6581,9 +6652,11 @@ class ServicemanBookingHistoryAPI(ListAPIView):
             "items__product"
         ).order_by("-created_at")
 
+
 # ================= WALLET API =================
 from .serializers import WalletSerializer
-from .models import Wallet
+from .models import Wallet, Transaction as WalletTransaction
+
 
 class UserWalletAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -6595,6 +6668,222 @@ class UserWalletAPI(APIView):
         tags=["Wallet"]
     )
     def get(self, request):
-        wallet, created = Wallet.objects.get_or_create(user=request.user)
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
         serializer = WalletSerializer(wallet)
         return Response(serializer.data)
+
+
+# ================= WALLET PAY API =================
+
+class WalletPayForBookingAPI(APIView):
+    """
+    Customer pays for a booking using wallet balance.
+    - Wallet covers full amount  -> FULLY_PAID_BY_WALLET
+    - Wallet covers partial      -> PARTIAL_WALLET (pay remainder via gateway)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Pay for Booking Using Wallet Balance",
+        operation_description="""
+Pay visiting/final charge using wallet balance.
+
+- **VISITING**: visiting_charge + platform_fee. Booking becomes PENDING and assignment flow starts.
+- **FINAL**: service_charge + approved product totals. Booking becomes COMPLETED.
+
+If wallet balance is insufficient, wallet is deducted first and the remaining
+amount must be paid via the selected payment gateway.
+""",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["payment_type"],
+            properties={
+                "payment_type": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=["VISITING", "FINAL"],
+                    description="Type of payment"
+                ),
+                "gateway": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=["RAZORPAY", "STRIPE"],
+                    description="Fallback gateway if wallet is insufficient"
+                ),
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Fully paid by wallet",
+                examples={
+                    "application/json": {
+                        "status": "FULLY_PAID_BY_WALLET",
+                        "wallet_deducted": "220.00",
+                        "remaining_to_pay": "0.00",
+                        "message": "Payment completed fully from wallet"
+                    }
+                }
+            ),
+            206: openapi.Response(
+                description="Partial wallet - pay remainder via gateway",
+                examples={
+                    "application/json": {
+                        "status": "PARTIAL_WALLET",
+                        "wallet_deducted": "100.00",
+                        "remaining_to_pay": "120.00",
+                        "gateway": "RAZORPAY",
+                        "booking_id": 5,
+                        "payment_type": "VISITING",
+                        "message": "Wallet balance partially used. Pay remaining via RAZORPAY."
+                    }
+                }
+            ),
+        },
+        security=[{"Bearer": []}],
+        tags=["Wallet"]
+    )
+    def post(self, request, booking_id):
+        from django.db import transaction as db_transaction
+        from .models import Wallet, Transaction as WalletTransaction
+        from decimal import Decimal
+
+        if request.user.role != "CUSTOMER":
+            return Response({"error": "Only customers can pay"}, status=403)
+
+        booking = get_object_or_404(Booking, id=booking_id)
+
+        if booking.customer.user != request.user:
+            return Response({"error": "This booking does not belong to you"}, status=403)
+
+        payment_type = request.data.get("payment_type", "VISITING")
+        gateway = request.data.get("gateway", "RAZORPAY")
+
+        # =============================================
+        # CALCULATE AMOUNT DUE
+        # =============================================
+        if payment_type == "VISITING":
+            if booking.payment_status in ["PARTIAL", "PAID"]:
+                return Response({"error": "Visiting charge already paid"}, status=400)
+
+            visiting_base = (
+                booking.serviceman.visiting_charge
+                if booking.serviceman
+                else Decimal("0")
+            )
+            amount_due = Decimal(str(visiting_base)) + Decimal(str(booking.platform_fee))
+
+            if booking.visiting_charge != visiting_base:
+                Booking.objects.filter(id=booking.id).update(visiting_charge=visiting_base)
+
+        elif payment_type == "FINAL":
+            if booking.payment_status != "PARTIAL":
+                return Response(
+                    {"error": "Visiting payment not done yet or booking already fully paid"},
+                    status=400
+                )
+            from django.db.models import Sum, F
+            product_total = (
+                booking.items.filter(approval_status="APPROVED")
+                .aggregate(total=Sum(F("quantity") * F("product_price")))["total"]
+                or Decimal("0")
+            )
+            amount_due = Decimal(str(booking.service_charge)) + Decimal(str(product_total))
+
+        else:
+            return Response({"error": "Invalid payment_type. Use VISITING or FINAL"}, status=400)
+
+        if amount_due <= 0:
+            return Response({"error": "Nothing to pay"}, status=400)
+
+        # =============================================
+        # WALLET BALANCE
+        # =============================================
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
+        wallet_balance = Decimal(str(wallet.balance))
+
+        with db_transaction.atomic():
+
+            if wallet_balance >= amount_due:
+                # FULLY PAID BY WALLET
+                wallet.balance = wallet_balance - amount_due
+                wallet.save(update_fields=["balance"])
+
+                WalletTransaction.objects.create(
+                    wallet=wallet,
+                    booking=booking,
+                    type="DEBIT",
+                    amount=amount_due,
+                    description=f"{payment_type.title()} payment (wallet) for Booking #{booking.id}"
+                )
+
+                Payment.objects.create(
+                    booking=booking,
+                    customer=booking.customer,
+                    amount=amount_due,
+                    payment_type=payment_type,
+                    method="WALLET",
+                    gateway="RAZORPAY",
+                    status="PAID",
+                    paid_at=timezone.now()
+                )
+
+                if payment_type == "VISITING":
+                    booking.payment_status = "PARTIAL"
+                    booking.status = "PENDING"
+                    booking.save(update_fields=["payment_status", "status"])
+                    try:
+                        from .reassign_logic import start_booking_assignment_flow
+                        start_booking_assignment_flow(booking.id)
+                    except Exception:
+                        pass
+
+                elif payment_type == "FINAL":
+                    booking.payment_status = "PAID"
+                    booking.status = "COMPLETED"
+                    booking.save(update_fields=["payment_status", "status"])
+
+                return Response({
+                    "status": "FULLY_PAID_BY_WALLET",
+                    "wallet_deducted": str(amount_due),
+                    "remaining_to_pay": "0.00",
+                    "message": "Payment completed fully from wallet"
+                }, status=200)
+
+            else:
+                # PARTIAL WALLET - gateway covers remainder
+                wallet_used = wallet_balance
+                remaining = amount_due - wallet_used
+
+                if wallet_used > 0:
+                    wallet.balance = Decimal("0")
+                    wallet.save(update_fields=["balance"])
+
+                    WalletTransaction.objects.create(
+                        wallet=wallet,
+                        booking=booking,
+                        type="DEBIT",
+                        amount=wallet_used,
+                        description=f"Partial wallet payment for Booking #{booking.id}"
+                    )
+
+                    Payment.objects.create(
+                        booking=booking,
+                        customer=booking.customer,
+                        amount=wallet_used,
+                        payment_type=payment_type,
+                        method="WALLET",
+                        gateway="RAZORPAY",
+                        status="PAID",
+                        paid_at=timezone.now()
+                    )
+
+                return Response({
+                    "status": "PARTIAL_WALLET",
+                    "wallet_deducted": str(wallet_used),
+                    "remaining_to_pay": str(remaining),
+                    "gateway": gateway,
+                    "booking_id": booking.id,
+                    "payment_type": payment_type,
+                    "message": (
+                        f"Wallet Rs.{wallet_used} used. "
+                        f"Pay remaining Rs.{remaining} via {gateway}."
+                    )
+                }, status=206)
