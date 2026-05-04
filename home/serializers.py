@@ -1039,3 +1039,20 @@ class RazorpayPaymentResponseSerializer(serializers.Serializer):
     currency = serializers.CharField()
     key_id = serializers.CharField()
 
+from .models import Wallet, Transaction
+
+class TransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Transaction
+        fields = ['id', 'booking', 'type', 'amount', 'description', 'created_at']
+
+class WalletSerializer(serializers.ModelSerializer):
+    transactions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Wallet
+        fields = ['id', 'balance', 'updated_at', 'transactions']
+
+    def get_transactions(self, obj):
+        transactions = Transaction.objects.filter(wallet=obj).order_by('-created_at')[:20]
+        return TransactionSerializer(transactions, many=True).data

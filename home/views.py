@@ -6581,3 +6581,20 @@ class ServicemanBookingHistoryAPI(ListAPIView):
             "items__product"
         ).order_by("-created_at")
 
+# ================= WALLET API =================
+from .serializers import WalletSerializer
+from .models import Wallet
+
+class UserWalletAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Get User Wallet Details",
+        responses={200: WalletSerializer},
+        security=[{"Bearer": []}],
+        tags=["Wallet"]
+    )
+    def get(self, request):
+        wallet, created = Wallet.objects.get_or_create(user=request.user)
+        serializer = WalletSerializer(wallet)
+        return Response(serializer.data)

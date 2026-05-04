@@ -762,6 +762,13 @@ class Payment(models.Model):
             if self.payment_type in ("VISITING", "VISITING_SERVICE"):
                 self.booking.payment_status = "PARTIAL"
                 self.booking.status = "PENDING"
+                
+                # Trigger the 90s/270s reassignment flow
+                try:
+                    from .reassign_logic import start_booking_assignment_flow
+                    start_booking_assignment_flow(self.booking.id)
+                except Exception as e:
+                    pass
 
             # ✅ FINAL PAID
             elif self.payment_type == "FINAL":

@@ -167,6 +167,8 @@ urlpatterns = [
     path("booking/<int:booking_id>/vendor-tracking/", VendorTrackingAPI.as_view()),
 
 
-    # ================= LOCATION =================
     path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),
+
+    # ================= WALLET =================
+    path("wallet/", views.UserWalletAPI.as_view()),
 ]
