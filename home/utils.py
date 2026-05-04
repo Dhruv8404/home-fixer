@@ -105,10 +105,18 @@ def send_email_otp(email):
 
 
 def _try_smtp(email, otp, html_body, plain_body):
-    """Attempt delivery via Django's configured SMTP backend."""
+    """Attempt delivery via direct SMTP (bypasses Django EMAIL_BACKEND so it
+    always uses the Gmail credentials even when Resend is the active backend)."""
+    import smtplib
+    import ssl
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
     smtp_host = getattr(settings, 'EMAIL_HOST', None)
+    smtp_port = getattr(settings, 'EMAIL_PORT', 587)
     smtp_user = getattr(settings, 'EMAIL_HOST_USER', None)
     smtp_pass = getattr(settings, 'EMAIL_HOST_PASSWORD', None)
+    use_tls   = getattr(settings, 'EMAIL_USE_TLS', True)
 
     if not (smtp_host and smtp_user and smtp_pass):
         msg = f"⚠️  SMTP not configured (host={smtp_host}, user={'set' if smtp_user else 'MISSING'}, pass={'set' if smtp_pass else 'MISSING'})"
@@ -117,14 +125,20 @@ def _try_smtp(email, otp, html_body, plain_body):
         return {"success": False, "error": "SMTP credentials not configured"}
 
     try:
-        msg = EmailMultiAlternatives(
-            subject="Your HomeFixer OTP",
-            body=plain_body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[email],
-        )
-        msg.attach_alternative(html_body, "text/html")
-        msg.send(fail_silently=False)
+        mime_msg = MIMEMultipart("alternative")
+        mime_msg["Subject"] = "Your HomeFixer OTP"
+        mime_msg["From"]    = smtp_user
+        mime_msg["To"]      = email
+        mime_msg.attach(MIMEText(plain_body, "plain"))
+        mime_msg.attach(MIMEText(html_body, "html"))
+
+        context = ssl.create_default_context()
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            if use_tls:
+                server.starttls(context=context)
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, [email], mime_msg.as_string())
+
         logger.info(f"✅ SMTP delivered OTP to {email}")
         print(f"✅ Email sent via SMTP to {email}")
         return {"success": True}

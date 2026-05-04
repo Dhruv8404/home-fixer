@@ -25,26 +25,28 @@ RAZORPAY_PAYMENT_CAPTURE = 1
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
 
+# --- Resend (primary in production) ---
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "")
 
 if RESEND_API_KEY:
-    # Use Resend via django-anymail when API key is available
     EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
     ANYMAIL = {
         "RESEND_API_KEY": RESEND_API_KEY,
     }
 else:
-    # Fall back to SMTP (e.g. Gmail) for local/dev environments
     EMAIL_BACKEND = os.getenv(
         "EMAIL_BACKEND",
         "django.core.mail.backends.smtp.EmailBackend"
     )
-    EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-    EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
-    EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
-    EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
-    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+
+# --- SMTP settings (always loaded so fallback works even when Resend is primary) ---
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", os.getenv("EMAIL_HOST_USER", ""))
 
