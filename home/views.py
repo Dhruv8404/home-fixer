@@ -1284,6 +1284,8 @@ class ServicemanBookingActionAPI(APIView):
 
         elif action == "reject":
             booking.status = "CANCELLED"
+            serviceman.is_available = True
+            serviceman.save(update_fields=['is_available'])
 
         else:
             return Response({"error": "Invalid action"}, status=400)
@@ -4613,6 +4615,8 @@ class ServicemanBookingActionAPI(APIView):
 
         elif action == "reject":
             booking.status = "CANCELLED"
+            serviceman.is_available = True
+            serviceman.save(update_fields=['is_available'])
 
         else:
             return Response({"error": "Invalid action"}, status=400)
