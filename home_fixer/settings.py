@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import dj_database_url
-
+from anymail.backends.resend import EmailBackend
 
 load_dotenv()
 
@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     'cloudinary',
     'cloudinary_storage',
     "channels",
+    "anymail",
 ]
 ASGI_APPLICATION = "homefixerapi.asgi.application"
 
