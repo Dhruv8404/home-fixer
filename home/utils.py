@@ -134,24 +134,12 @@ def _try_smtp(email, otp, html_body, plain_body):
 
         context = ssl.create_default_context()
         
-        # Force IPv4 resolution to fix Railway [Errno 101] Network is unreachable with IPv6
-        import socket
-        try:
-            # Get IPv4 address for the host
-            ipv4_address = socket.gethostbyname(smtp_host)
-            logger.info(f"Resolved {smtp_host} to IPv4: {ipv4_address}")
-            connect_host = ipv4_address
-        except Exception as e:
-            logger.warning(f"Failed to resolve IPv4 for {smtp_host}: {e}. Falling back to hostname.")
-            connect_host = smtp_host
-
-        # Use connect_host (IP) but pass the original smtp_host for TLS verification/SNI
-        with smtplib.SMTP(timeout=15) as server:
-            server.connect(connect_host, smtp_port)
-            server.ehlo_or_helo_if_needed()
-            if use_tls:
-                server.starttls(context=context)
-                server.ehlo()
+        # Railway blocks outbound port 587/25 on free tiers. Use 465 (SSL) first.
+        port_to_use = 465 if smtp_port in (25, 587) else smtp_port
+        
+        # Use SMTP_SSL for port 465, which doesn't need starttls()
+        # Relying on SMTP_SSL often bypasses the IPv6 starttls issues as well
+        with smtplib.SMTP_SSL(smtp_host, port_to_use, context=context, timeout=15) as server:
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_user, [email], mime_msg.as_string())
 
