@@ -103,10 +103,7 @@ def send_email_otp(email):
         print("⬇️  SMTP failed, falling back to Resend")
         return _try_resend(email, otp, html_body, plain_body)
 
-
 def _try_smtp(email, otp, html_body, plain_body):
-    """Attempt delivery via direct SMTP (bypasses Django EMAIL_BACKEND so it
-    always uses the Gmail credentials even when Resend is the active backend)."""
     import smtplib
     import ssl
     from email.mime.multipart import MIMEMultipart
@@ -116,12 +113,10 @@ def _try_smtp(email, otp, html_body, plain_body):
     smtp_port = getattr(settings, 'EMAIL_PORT', 587)
     smtp_user = getattr(settings, 'EMAIL_HOST_USER', None)
     smtp_pass = getattr(settings, 'EMAIL_HOST_PASSWORD', None)
-    use_tls   = getattr(settings, 'EMAIL_USE_TLS', True)
 
     if not (smtp_host and smtp_user and smtp_pass):
-        msg = f"⚠️  SMTP not configured (host={smtp_host}, user={'set' if smtp_user else 'MISSING'}, pass={'set' if smtp_pass else 'MISSING'})"
+        msg = f"⚠️  SMTP not configured"
         logger.warning(msg)
-        print(msg)
         return {"success": False, "error": "SMTP credentials not configured"}
 
     try:
@@ -133,13 +128,8 @@ def _try_smtp(email, otp, html_body, plain_body):
         mime_msg.attach(MIMEText(html_body, "html"))
 
         context = ssl.create_default_context()
-        
-        # Railway blocks outbound port 587/25 on free tiers. Use 465 (SSL) first.
-        port_to_use = 465 if smtp_port in (25, 587) else smtp_port
-        
-        # Use SMTP_SSL for port 465, which doesn't need starttls()
-        # Relying on SMTP_SSL often bypasses the IPv6 starttls issues as well
-        with smtplib.SMTP_SSL(smtp_host, port_to_use, context=context, timeout=15) as server:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.starttls(context=context)
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_user, [email], mime_msg.as_string())
 
@@ -150,7 +140,6 @@ def _try_smtp(email, otp, html_body, plain_body):
         logger.error(f"❌ SMTP failed for {email}: {e}")
         print(f"❌ SMTP error: {e}")
         return {"success": False, "error": str(e)}
-
 
 def _try_resend(email, otp, html_body, plain_body):
     """Attempt delivery via Resend HTTP API."""
