@@ -279,7 +279,92 @@ class RegisterCompleteAPI(APIView):
             "tokens": get_tokens(user)
         })
 
+class GoogleLoginAPI(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
+    @swagger_auto_schema(
+        operation_summary="Login/Register with Google",
+        operation_description="Authenticate with Google ID Token. If user doesn't exist, 'phone' and 'role' are required for registration.",
+        request_body=GoogleAuthSerializer,
+        tags=["Auth"]
+    )
+    def post(self, request):
+        serializer = GoogleAuthSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        name = serializer.validated_data["name"]
+        
+        user = User.objects.filter(email=email).first()
+
+        if user:
+            # Existing user: Login
+            return Response({
+                "success": True,
+                "message": "Login successful",
+                "is_new_user": False,
+                "role": user.role,
+                "tokens": get_tokens(user),
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "name": user.name,
+                    "phone": user.phone,
+                }
+            }, status=200)
+        else:
+            # New user: Register
+            phone = serializer.validated_data.get("phone")
+            role = serializer.validated_data.get("role")
+
+            if not phone or not role:
+                return Response({
+                    "success": False,
+                    "message": "User not found. Please provide 'phone' and 'role' to register.",
+                    "is_new_user": True,
+                    "email": email,
+                    "name": name
+                }, status=400)
+
+            # Check if phone exists for another user
+            if User.objects.filter(phone=phone).exists():
+                return Response({
+                    "success": False,
+                    "message": "Phone number already exists with another account."
+                }, status=400)
+
+            # Create new user
+            user = User.objects.create_user(
+                email=email,
+                phone=phone,
+                role=role
+            )
+            user.name = name
+            user.is_verified = True
+            user.save()
+
+            # Create profile
+            if user.role == "CUSTOMER":
+                CustomerProfile.objects.get_or_create(user=user)
+            elif user.role == "SERVICEMAN":
+                ServicemanProfile.objects.get_or_create(user=user)
+            elif user.role == "VENDOR":
+                VendorProfile.objects.get_or_create(user=user)
+
+            return Response({
+                "success": True,
+                "message": "User registered and logged in successfully",
+                "is_new_user": True,
+                "role": user.role,
+                "tokens": get_tokens(user),
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "name": user.name,
+                    "phone": user.phone,
+                }
+            }, status=201)
 
 #=============User Profile API =============#
 class UserProfileAPI(APIView):

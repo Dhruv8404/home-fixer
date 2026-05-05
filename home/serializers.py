@@ -76,7 +76,36 @@ class CompleteRegisterSerializer(serializers.Serializer):
             )
         return value
 
+class GoogleAuthSerializer(serializers.Serializer):
+    id_token = serializers.CharField(required=True)
+    phone = serializers.CharField(required=False, max_length=20)
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES, required=False)
 
+    def validate(self, data):
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+        from django.conf import settings
+
+        token = data.get("id_token")
+        client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
+
+        try:
+            # Verify the ID token
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), client_id)
+
+            # ID token is valid. Get the user's Google ID information.
+            if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+                raise serializers.ValidationError('Wrong issuer.')
+
+            data["email"] = idinfo['email']
+            data["name"] = idinfo.get('name', '')
+            data["google_id"] = idinfo['sub']
+
+        except ValueError:
+            # Invalid token
+            raise serializers.ValidationError("Invalid Google ID token")
+
+        return data
 
 #===========User Profile Serializer ==========#
 class UserProfileSerializer(serializers.ModelSerializer):

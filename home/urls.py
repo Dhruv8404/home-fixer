@@ -51,6 +51,7 @@ from .views import (
     VerifyRazorpayPaymentAPIView,
     VerifyStripePaymentAPIView,
     WalletPayForBookingAPI,
+    GoogleLoginAPI,
 )
 
 from .admin_views import (
@@ -65,6 +66,7 @@ urlpatterns = [
 
     # ================= AUTH =================
     path("login/", EmailPasswordLoginAPI.as_view(), name="login"),
+    path("auth/google-login/", GoogleLoginAPI.as_view(), name="google-login"),
     path("auth/logout/", LogoutAPI.as_view(), name="logout"),
 
     path("auth/login/send-otp/", LoginSendOTPAPI.as_view()),
