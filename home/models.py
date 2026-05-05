@@ -128,6 +128,17 @@ class ServicemanProfile(models.Model):
         blank=True
     )
 
+    def save(self, *args, **kwargs):
+        # Auto-update visiting_charge based on the first skill/category
+        if self.skills and len(self.skills) > 0:
+            from .models import Category
+            first_skill = self.skills[0]
+            category = Category.objects.filter(name__iexact=first_skill).first()
+            if category and category.visiting_charge > 0:
+                self.visiting_charge = category.visiting_charge
+        
+        super().save(*args, **kwargs)
+
 class VendorProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
     is_approved = models.BooleanField(default=False)  # ✅ NEW FIELD
@@ -212,6 +223,25 @@ class Category(models.Model):
         max_length=20,
         choices=TYPE_CHOICES
     )
+    visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    def save(self, *args, **kwargs):
+        is_existing = self.pk is not None
+        old_charge = None
+        if is_existing:
+            old_category = Category.objects.get(pk=self.pk)
+            old_charge = old_category.visiting_charge
+            
+        super().save(*args, **kwargs)
+        
+        # If visiting charge changed (or new category), update servicemen
+        if (is_existing and old_charge != self.visiting_charge) or not is_existing:
+            from .models import ServicemanProfile
+            for profile in ServicemanProfile.objects.all():
+                if profile.skills and len(profile.skills) > 0:
+                    if profile.skills[0].lower() == self.name.lower():
+                        profile.visiting_charge = self.visiting_charge
+                        profile.save(update_fields=['visiting_charge'])
 
     def __str__(self):
         return f"{self.name} ({self.category_type})"
@@ -622,6 +652,25 @@ class Transaction(models.Model):
     description = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+class WithdrawalRequest(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='withdrawal_requests')
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    payment_method = models.CharField(max_length=50, blank=True)
+    transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Withdrawal #{self.id} - {self.user.email} - {self.amount}"
+
+
 
 
 class Review(models.Model):
@@ -821,3 +870,12 @@ class SystemSetting(models.Model):
 
     def __str__(self):
         return f"{self.key}: {self.value}"
+
+class PlatformSettings(models.Model):
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=20.00)
+
+    class Meta:
+        verbose_name_plural = 'Platform Settings'
+
+    def __str__(self):
+        return f'Platform Settings (Fee: {self.platform_fee})'

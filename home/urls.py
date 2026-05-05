@@ -59,7 +59,8 @@ from .admin_views import (
     AdminUserDetailAPI,
     CategoryListAPI,
     CategoryCreateAPI,
-    CategoryDetailAPI
+    CategoryDetailAPI,
+    AdminPlatformSettingsAPI
 )
 
 urlpatterns = [
@@ -109,6 +110,8 @@ urlpatterns = [
     path("admin/customers/", views.AdminCustomerListAPI.as_view()),
     path("admin/servicemen/all/", views.AdminServicemanListAPI.as_view()),
     path("admin/vendors/all/", views.AdminVendorListAPI.as_view()),
+    
+    path("admin/settings/platform-fee/", AdminPlatformSettingsAPI.as_view()),
 
     # 🔥 NEW PAYMENT ENDPOINTS
     path("booking/<int:booking_id>/payment/create/", views.PaymentCreateAPIView.as_view()),
@@ -175,4 +178,7 @@ urlpatterns = [
     # ================= WALLET =================
     path("wallet/", views.UserWalletAPI.as_view()),
     path("wallet/booking/<int:booking_id>/pay/", WalletPayForBookingAPI.as_view(), name="wallet-pay-booking"),
+    path("wallet/withdrawal/request/", views.WithdrawalRequestAPI.as_view(), name="withdrawal-request"),
+    path("admin/withdrawals/", views.AdminWithdrawalApprovalAPI.as_view(), name="admin-withdrawals"),
+    path("admin/withdrawals/<int:pk>/", views.AdminWithdrawalApprovalAPI.as_view(), name="admin-withdrawal-action"),
 ]

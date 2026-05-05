@@ -1,3 +1,4 @@
+from home.serializers import GoogleAuthSerializer
 import profile
 from django.conf import settings
 from django.utils import timezone
@@ -6972,3 +6973,118 @@ amount must be paid via the selected payment gateway.
                         f"Pay remaining Rs.{remaining} via {gateway}."
                     )
                 }, status=206)
+
+from .models import WithdrawalRequest
+from .serializers import WithdrawalRequestSerializer
+
+class WithdrawalRequestAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role not in ['SERVICEMAN', 'VENDOR']:
+            return Response({"error": "Only serviceman or vendor can request withdrawal"}, status=403)
+
+        amount = request.data.get('amount')
+        payment_method = request.data.get('payment_method', '')
+
+        if not amount:
+            return Response({"error": "Amount is required"}, status=400)
+        
+        try:
+            amount = Decimal(str(amount))
+        except:
+            return Response({"error": "Invalid amount format"}, status=400)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero"}, status=400)
+
+        wallet, _ = Wallet.objects.get_or_create(user=request.user)
+        
+        if wallet.balance < amount:
+            return Response({"error": "Insufficient wallet balance"}, status=400)
+
+        # Deduct wallet immediately
+        wallet.balance -= amount
+        wallet.save()
+
+        # Log Transaction
+        Transaction.objects.create(
+            wallet=wallet,
+            type="DEBIT",
+            amount=amount,
+            description=f"Withdrawal request placed"
+        )
+
+        withdrawal = WithdrawalRequest.objects.create(
+            user=request.user,
+            amount=amount,
+            payment_method=payment_method,
+            status='PENDING'
+        )
+
+        return Response({
+            "message": "Withdrawal request submitted successfully",
+            "request_id": withdrawal.id
+        }, status=201)
+
+    def get(self, request):
+        if request.user.role not in ['SERVICEMAN', 'VENDOR']:
+            return Response({"error": "Only serviceman or vendor can view their withdrawals"}, status=403)
+
+        withdrawals = WithdrawalRequest.objects.filter(user=request.user).order_by('-created_at')
+        serializer = WithdrawalRequestSerializer(withdrawals, many=True)
+        return Response(serializer.data)
+
+class AdminWithdrawalApprovalAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'ADMIN':
+            return Response({"error": "Admin only"}, status=403)
+        withdrawals = WithdrawalRequest.objects.all().order_by('-created_at')
+        serializer = WithdrawalRequestSerializer(withdrawals, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        if request.user.role != 'ADMIN':
+            return Response({"error": "Admin only"}, status=403)
+
+        withdrawal = get_object_or_404(WithdrawalRequest, pk=pk)
+        action = request.data.get("action") 
+        transaction_id = request.data.get("transaction_id", "")
+
+        if withdrawal.status != 'PENDING':
+            return Response({"error": f"Request is already {withdrawal.status}"}, status=400)
+
+        if action == "approve":
+            # Just mark approved, wallet already deducted
+            withdrawal.status = 'APPROVED'
+            withdrawal.transaction_id = transaction_id
+            withdrawal.save()
+
+            # Update the original transaction description
+            txn = Transaction.objects.filter(wallet__user=withdrawal.user, amount=withdrawal.amount, type="DEBIT", description="Withdrawal request placed").last()
+            if txn:
+                txn.description = f"Withdrawal Approved. Txn ID: {transaction_id}"
+                txn.save()
+
+            return Response({"message": "Withdrawal approved successfully"})
+
+        elif action == "reject":
+            # Refund the wallet
+            wallet = get_object_or_404(Wallet, user=withdrawal.user)
+            wallet.balance += withdrawal.amount
+            wallet.save()
+
+            Transaction.objects.create(
+                wallet=wallet,
+                type="CREDIT",
+                amount=withdrawal.amount,
+                description=f"Withdrawal Rejected. Refunded to wallet"
+            )
+
+            withdrawal.status = 'REJECTED'
+            withdrawal.save()
+            return Response({"message": "Withdrawal rejected and amount refunded to wallet"})
+        
+        return Response({"error": "Invalid action. Use 'approve' or 'reject'"}, status=400)

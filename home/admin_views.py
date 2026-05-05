@@ -136,3 +136,43 @@ class CategoryDetailAPI(generics.RetrieveUpdateDestroyAPIView):
     )
     def delete(self, request, *args, **kwargs):
         return super().delete(request, *args, **kwargs)
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import PlatformSettings
+from .serializers import PlatformSettingsSerializer
+
+class AdminPlatformSettingsAPI(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get Platform Settings",
+        tags=["Admin - Settings"],
+        security=[{"Bearer": []}]
+    )
+    def get(self, request):
+        settings, _ = PlatformSettings.objects.get_or_create(id=1)
+        serializer = PlatformSettingsSerializer(settings)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Update Platform Settings",
+        request_body=PlatformSettingsSerializer,
+        tags=["Admin - Settings"],
+        security=[{"Bearer": []}]
+    )
+    def patch(self, request):
+        settings, _ = PlatformSettings.objects.get_or_create(id=1)
+        serializer = PlatformSettingsSerializer(settings, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+        
+    @swagger_auto_schema(
+        operation_summary="Admin: Update Platform Settings Post",
+        request_body=PlatformSettingsSerializer,
+        tags=["Admin - Settings"],
+        security=[{"Bearer": []}]
+    )
+    def post(self, request):
+        return self.patch(request)
