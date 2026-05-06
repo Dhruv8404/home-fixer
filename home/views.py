@@ -1,3 +1,4 @@
+from home.models import Transaction
 from home.serializers import GoogleAuthSerializer
 import profile
 from django.conf import settings
@@ -6977,10 +6978,17 @@ amount must be paid via the selected payment gateway.
 from .models import WithdrawalRequest
 from .serializers import WithdrawalRequestSerializer
 
-class WithdrawalRequestAPI(APIView):
-    permission_classes = [IsAuthenticated]
+from rest_framework.generics import GenericAPIView
 
-    def post(self, request):
+class WithdrawalRequestAPI(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WithdrawalRequestSerializer
+
+    @swagger_auto_schema(
+        operation_summary="Request Wallet Withdrawal",
+        tags=["Wallet"]
+    )
+    def post(self, request, *args, **kwargs):
         if request.user.role not in ['SERVICEMAN', 'VENDOR']:
             return Response({"error": "Only serviceman or vendor can request withdrawal"}, status=403)
 
@@ -7027,7 +7035,11 @@ class WithdrawalRequestAPI(APIView):
             "request_id": withdrawal.id
         }, status=201)
 
-    def get(self, request):
+    @swagger_auto_schema(
+        operation_summary="Get Withdrawal Requests",
+        tags=["Wallet"]
+    )
+    def get(self, request, *args, **kwargs):
         if request.user.role not in ['SERVICEMAN', 'VENDOR']:
             return Response({"error": "Only serviceman or vendor can view their withdrawals"}, status=403)
 
@@ -7035,9 +7047,13 @@ class WithdrawalRequestAPI(APIView):
         serializer = WithdrawalRequestSerializer(withdrawals, many=True)
         return Response(serializer.data)
 
-class AdminWithdrawalApprovalAPI(APIView):
+class AdminWithdrawalListAPI(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="Get All Withdrawal Requests (Admin)",
+        tags=["Admin Wallet"]
+    )
     def get(self, request):
         if request.user.role != 'ADMIN':
             return Response({"error": "Admin only"}, status=403)
@@ -7045,6 +7061,22 @@ class AdminWithdrawalApprovalAPI(APIView):
         serializer = WithdrawalRequestSerializer(withdrawals, many=True)
         return Response(serializer.data)
 
+
+class AdminWithdrawalActionAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="Approve/Reject Withdrawal Request",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["action"],
+            properties={
+                "action": openapi.Schema(type=openapi.TYPE_STRING, enum=["approve", "reject"], description="Action to take"),
+                "transaction_id": openapi.Schema(type=openapi.TYPE_STRING, description="Transaction ID (leave empty for automated Razorpay payout)"),
+            }
+        ),
+        tags=["Admin Wallet"]
+    )
     def post(self, request, pk):
         if request.user.role != 'ADMIN':
             return Response({"error": "Admin only"}, status=403)
@@ -7057,7 +7089,15 @@ class AdminWithdrawalApprovalAPI(APIView):
             return Response({"error": f"Request is already {withdrawal.status}"}, status=400)
 
         if action == "approve":
-            # Just mark approved, wallet already deducted
+            # If no manual transaction ID provided, process automated payout
+            if not transaction_id:
+                from .utils import process_razorpay_payout
+                payout_result = process_razorpay_payout(withdrawal)
+                if not payout_result.get("success"):
+                    return Response({"error": f"Automated payout failed: {payout_result.get('error')}"}, status=400)
+                transaction_id = payout_result.get("transaction_id")
+
+            # Mark approved, wallet already deducted when requested
             withdrawal.status = 'APPROVED'
             withdrawal.transaction_id = transaction_id
             withdrawal.save()
@@ -7068,7 +7108,10 @@ class AdminWithdrawalApprovalAPI(APIView):
                 txn.description = f"Withdrawal Approved. Txn ID: {transaction_id}"
                 txn.save()
 
-            return Response({"message": "Withdrawal approved successfully"})
+            return Response({
+                "message": "Withdrawal approved successfully", 
+                "transaction_id": transaction_id
+            })
 
         elif action == "reject":
             # Refund the wallet

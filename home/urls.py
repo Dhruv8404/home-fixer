@@ -179,6 +179,6 @@ urlpatterns = [
     path("wallet/", views.UserWalletAPI.as_view()),
     path("wallet/booking/<int:booking_id>/pay/", WalletPayForBookingAPI.as_view(), name="wallet-pay-booking"),
     path("wallet/withdrawal/request/", views.WithdrawalRequestAPI.as_view(), name="withdrawal-request"),
-    path("admin/withdrawals/", views.AdminWithdrawalApprovalAPI.as_view(), name="admin-withdrawals"),
-    path("admin/withdrawals/<int:pk>/", views.AdminWithdrawalApprovalAPI.as_view(), name="admin-withdrawal-action"),
+    path("admin/withdrawals/", views.AdminWithdrawalListAPI.as_view(), name="admin-withdrawals"),
+    path("admin/withdrawals/<int:pk>/", views.AdminWithdrawalActionAPI.as_view(), name="admin-withdrawal-action"),
 ]

@@ -435,3 +435,69 @@ def verify_razorpay_payment(order_id, payment_id, signature):
         raise serializers.ValidationError(f"Verification failed: {str(e)}")
 
 
+def process_razorpay_payout(withdrawal):
+    """
+    Automates payout using RazorpayX.
+    If RazorpayX is not configured in settings, it simulates a successful payout for testing.
+    """
+    try:
+        # RazorpayX requires a specific account number to fund payouts from.
+        razorpayx_account = getattr(settings, 'RAZORPAYX_ACCOUNT_NUMBER', None)
+
+        if not razorpayx_account and getattr(settings, 'DEBUG', True):
+            # SIMULATION MODE for local testing without RazorpayX setup
+            import uuid
+            return {
+                "success": True,
+                "transaction_id": f"sim_payout_{uuid.uuid4().hex[:10]}",
+                "message": "Simulated payout successful (RazorpayX not configured)"
+            }
+
+        if not razorpayx_account:
+            return {"success": False, "error": "RAZORPAYX_ACCOUNT_NUMBER is not configured."}
+
+        # 1. Create Contact
+        contact_data = {
+            "name": withdrawal.user.name,
+            "email": withdrawal.user.email,
+            "reference_id": f"user_{withdrawal.user.id}",
+            "type": "vendor" if withdrawal.user.role == "VENDOR" else "employee"
+        }
+        contact = razorpay_client.utility.post('/contacts', contact_data)
+
+        # 2. Create Fund Account (Assuming UPI for now)
+        payment_info = withdrawal.payment_method
+        if '@' in payment_info:
+            fund_account_data = {
+                "contact_id": contact['id'],
+                "account_type": "vpa",
+                "vpa": {"address": payment_info}
+            }
+        else:
+            # Fallback for testing, in production you should parse Bank Account details
+            return {"success": False, "error": "Only UPI is supported for automated payouts right now."}
+
+        fund_account = razorpay_client.utility.post('/fund_accounts', fund_account_data)
+
+        # 3. Create Payout
+        payout_data = {
+            "account_number": razorpayx_account,
+            "fund_account_id": fund_account['id'],
+            "amount": int(withdrawal.amount * 100),
+            "currency": "INR",
+            "mode": "UPI",
+            "purpose": "payout",
+            "reference_id": f"WDR_{withdrawal.id}"
+        }
+        
+        payout = razorpay_client.utility.post('/payouts', payout_data)
+        
+        return {
+            "success": True,
+            "transaction_id": payout['id'],
+            "message": "Payout completed successfully."
+        }
+        
+    except Exception as e:
+        logger.error(f"Payout failed: {str(e)}")
+        return {"success": False, "error": str(e)}
