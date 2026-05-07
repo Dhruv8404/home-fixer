@@ -32,6 +32,7 @@ from .views import (
     VendorProfileUpdateAPI,
     CustomerProfileUpdateAPI,
     ProfileAPI,
+    SaveProfileAPI,
     EmailPasswordLoginAPI,
     NearbyServicemanAPI,
     PendingVendorsAPI,
@@ -49,6 +50,9 @@ from .views import (
     VerifyStripePaymentAPIView,
     WalletPayForBookingAPI,
     GoogleLoginAPI,
+    CustomerProfileAPI,
+    ServicemanProfileAPI,
+    VendorProfileAPI,
 )
 
 from .admin_views import (
@@ -77,10 +81,14 @@ urlpatterns = [
 
     # ================= USER =================
     path("user/profile/", UserProfileAPI.as_view()),
+    path("user/customer-profile/", CustomerProfileAPI.as_view(), name="user_customer-profile_create"),
+    path("user/serviceman-profile/", ServicemanProfileAPI.as_view(), name="user_serviceman-profile_create"),
+    path("user/vendor-profile/", VendorProfileAPI.as_view(), name="user_vendor-profile_create"),
 
 
 
     path("profile/", ProfileAPI.as_view()),
+    path("profile/save/", SaveProfileAPI.as_view()),
     path("profile/customer/update/", CustomerProfileUpdateAPI.as_view()),
     path("profile/serviceman/update/", ServicemanProfileUpdateAPI.as_view()),
     path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),

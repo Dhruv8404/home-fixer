@@ -478,7 +478,7 @@ def process_razorpay_payout(withdrawal):
             fund_account_data = {
                 "contact_id": contact['id'],
                 "account_type": "vpa",
-                "vpa": {"address": payment_info}
+                "vpa": {"address": withdrawal.upi_id}
             }
         else:
             # Fallback for testing, in production you should parse Bank Account details

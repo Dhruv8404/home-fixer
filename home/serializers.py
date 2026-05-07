@@ -125,21 +125,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
 #===========Customer, Serviceman, Vendor Profile Serializers ==========#
 
 class CustomerProfileSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(source='user.email', required=False)
-    name = serializers.CharField(source='user.name', required=False)
-    phone = serializers.CharField(source='user.phone', required=False)
-    password = serializers.CharField(write_only=True, required=False)
-
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = CustomerProfile
         fields = [
-            'email',
-            'name',
-            'phone',
-            'password',
             'default_address',
             'default_lat',
             'default_long',
@@ -153,18 +144,6 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
         return None
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        password = validated_data.pop('password', None)
-        user = instance.user
-        
-        if user_data:
-            user.name = user_data.get('name', user.name)
-            user.email = user_data.get('email', user.email)
-            user.phone = user_data.get('phone', user.phone)
-        if password:
-            user.set_password(password)
-        user.save()
-
         new_image = validated_data.get('profile_image')
 
         if new_image and instance.profile_image:
@@ -177,11 +156,6 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)
     
-    email = serializers.EmailField(source='user.email', required=False)
-    name = serializers.CharField(source='user.name', required=False)
-    phone = serializers.CharField(source='user.phone', required=False)
-    password = serializers.CharField(write_only=True, required=False)
-
     visiting_charge = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -203,10 +177,6 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
         model = ServicemanProfile
         fields = [
             'id',
-            'email',
-            'name',
-            'phone',
-            'password',
             'is_online',
             'is_approved',
             'is_active',
@@ -243,18 +213,6 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
         return []
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        password = validated_data.pop('password', None)
-        user = instance.user
-        
-        if user_data:
-            user.name = user_data.get('name', user.name)
-            user.email = user_data.get('email', user.email)
-            user.phone = user_data.get('phone', user.phone)
-        if password:
-            user.set_password(password)
-        user.save()
-
         # RESTRICTION: Only allow updating kyc_document if it is NOT SET, or if user is ADMIN
         request = self.context.get('request')
         if 'kyc_document' in validated_data:
@@ -280,11 +238,6 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
 class VendorProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)    
 
-    email = serializers.EmailField(source='user.email', required=False)
-    name = serializers.CharField(source='user.name', required=False)
-    phone = serializers.CharField(source='user.phone', required=False)
-    password = serializers.CharField(write_only=True, required=False)
-
     # ========= Image Upload =========
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
@@ -302,10 +255,6 @@ class VendorProfileSerializer(serializers.ModelSerializer):
         model = VendorProfile
         fields = [
             'id',
-            'email',
-            'name',
-            'phone',
-            'password',
             'is_approved',
             'is_active',
             # ================= BUSINESS =================
@@ -366,18 +315,6 @@ class VendorProfileSerializer(serializers.ModelSerializer):
 
     # ================= SAFE UPDATE (Delete Old Cloudinary Files) =================
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
-        password = validated_data.pop('password', None)
-        user = instance.user
-        
-        if user_data:
-            user.name = user_data.get('name', user.name)
-            user.email = user_data.get('email', user.email)
-            user.phone = user_data.get('phone', user.phone)
-        if password:
-            user.set_password(password)
-        user.save()
-
         # RESTRICTION: Only allow updating docs if they are NOT SET, or if user is ADMIN
         request = self.context.get('request')
         doc_fields = ['gst_certificate', 'store_registration', 'id_proof']
@@ -1203,8 +1140,131 @@ class WithdrawalRequestSerializer(serializers.ModelSerializer):
         model = WithdrawalRequest
         fields = [
             'id', 'user', 'user_email', 'user_name', 'user_role',
-            'amount', 'status', 'payment_method', 'admin_payment_method', 'transaction_id',
+            'amount', 'status', 'payment_method', 'upi_id', 'admin_payment_method', 'transaction_id',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'user_email', 'user_name', 'user_role', 'status', 'transaction_id', 'admin_payment_method', 'created_at', 'updated_at']
+
+
+# =================== SLIM PROFILE CREATE SERIALIZERS ===================
+# POST /user/customer-profile/, /user/serviceman-profile/, /user/vendor-profile/
+# Intentionally exclude: name, email, phone, password
+
+class CustomerProfileCreateSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomerProfile
+        fields = [
+            'default_address',
+            'default_lat',
+            'default_long',
+            'profile_image',
+            'profile_image_url',
+        ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+
+
+class ServicemanProfileCreateSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+    kyc_document = serializers.ImageField(required=False, write_only=True)
+    kyc_document_url = serializers.SerializerMethodField(read_only=True)
+    skills = serializers.CharField(required=False, help_text='Comma-separated skills e.g. Plumber,Electrician')
+
+    class Meta:
+        model = ServicemanProfile
+        fields = [
+            'is_online',
+            'current_lat',
+            'current_long',
+            'experience_years',
+            'skills',
+            'upi_id',
+            'profile_image',
+            'profile_image_url',
+            'kyc_document',
+            'kyc_document_url',
+        ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+
+    def get_kyc_document_url(self, obj):
+        if obj.kyc_document:
+            return obj.kyc_document.url
+        return None
+
+    def validate_skills(self, value):
+        if value:
+            return [skill.strip() for skill in value.split(',')]
+        return []
+
+
+class VendorProfileCreateSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ImageField(required=False, write_only=True)
+    profile_image_url = serializers.SerializerMethodField(read_only=True)
+    gst_certificate = serializers.FileField(required=False, write_only=True)
+    store_registration = serializers.FileField(required=False, write_only=True)
+    id_proof = serializers.FileField(required=False, write_only=True)
+    gst_certificate_url = serializers.SerializerMethodField(read_only=True)
+    store_registration_url = serializers.SerializerMethodField(read_only=True)
+    id_proof_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = VendorProfile
+        fields = [
+            'business_name',
+            'gst_number',
+            'contact_number',
+            'business_email',
+            'opening_time',
+            'closing_time',
+            'city',
+            'state',
+            'full_address',
+            'store_lat',
+            'store_long',
+            'account_holder_name',
+            'bank_name',
+            'account_number',
+            'ifsc_code',
+            'upi_id',
+            'profile_image',
+            'profile_image_url',
+            'gst_certificate',
+            'gst_certificate_url',
+            'store_registration',
+            'store_registration_url',
+            'id_proof',
+            'id_proof_url',
+        ]
+
+    def get_profile_image_url(self, obj):
+        if obj.profile_image:
+            return obj.profile_image.url
+        return None
+
+    def get_gst_certificate_url(self, obj):
+        if obj.gst_certificate:
+            return obj.gst_certificate.url
+        return None
+
+    def get_store_registration_url(self, obj):
+        if obj.store_registration:
+            return obj.store_registration.url
+        return None
+
+    def get_id_proof_url(self, obj):
+        if obj.id_proof:
+            return obj.id_proof.url
+        return None
+
 

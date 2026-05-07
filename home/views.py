@@ -453,6 +453,116 @@ class ProfileAPI(APIView):
 
 
 
+#=============Profile Create API (POST) =============#
+class CustomerProfileAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    @swagger_auto_schema(
+        operation_summary="Create / Save Customer Profile",
+        request_body=CustomerProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: CustomerProfileSerializer},
+        tags=["Profile"]
+    )
+    def post(self, request):
+        if request.user.role != "CUSTOMER":
+            return Response(
+                {"detail": "Only CUSTOMER can access this endpoint"},
+                status=403
+            )
+
+        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
+
+        serializer = CustomerProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response({
+            "message": "Customer profile saved successfully",
+            "profile": serializer.data
+        })
+
+
+class ServicemanProfileAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    @swagger_auto_schema(
+        operation_summary="Create / Save Serviceman Profile",
+        request_body=ServicemanProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: ServicemanProfileSerializer},
+        tags=["Profile"]
+    )
+    def post(self, request):
+        if request.user.role != "SERVICEMAN":
+            return Response(
+                {"detail": "Only SERVICEMAN can access this endpoint"},
+                status=403
+            )
+
+        profile, _ = ServicemanProfile.objects.get_or_create(user=request.user)
+
+        serializer = ServicemanProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response({
+            "message": "Serviceman profile saved successfully",
+            "profile": serializer.data
+        })
+
+
+class VendorProfileAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    @swagger_auto_schema(
+        operation_summary="Create / Save Vendor Profile",
+        request_body=VendorProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: VendorProfileSerializer},
+        tags=["Profile"]
+    )
+    def post(self, request):
+        if request.user.role != "VENDOR":
+            return Response(
+                {"detail": "Only VENDOR can access this endpoint"},
+                status=403
+            )
+
+        profile, _ = VendorProfile.objects.get_or_create(user=request.user)
+
+        serializer = VendorProfileSerializer(
+            profile,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response({
+            "message": "Vendor profile saved successfully",
+            "profile": serializer.data
+        })
+
+
+
 #=============Profile Update API =============#
 class CustomerProfileUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -464,7 +574,17 @@ class CustomerProfileUpdateAPI(APIView):
 )
 
     def put(self, request):
+        return self._save_profile(request)
 
+    @swagger_auto_schema(
+        request_body=CustomerProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: CustomerProfileSerializer}
+    )
+    def post(self, request):
+        return self._save_profile(request)
+
+    def _save_profile(self, request):
         if request.user.role != "CUSTOMER":
             return Response(
                 {"detail": "Only CUSTOMER can update this profile"},
@@ -476,7 +596,8 @@ class CustomerProfileUpdateAPI(APIView):
         serializer = CustomerProfileSerializer(
             profile,
             data=request.data,
-            partial=True
+            partial=True,
+            context={"request": request}
         )
 
         serializer.is_valid(raise_exception=True)
@@ -494,7 +615,17 @@ class ServicemanProfileUpdateAPI(APIView):
         responses={200: ServicemanProfileSerializer}
     )
     def put(self, request):
+        return self._save_profile(request)
 
+    @swagger_auto_schema(
+        request_body=ServicemanProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: ServicemanProfileSerializer}
+    )
+    def post(self, request):
+        return self._save_profile(request)
+
+    def _save_profile(self, request):
         if request.user.role != "SERVICEMAN":
             return Response(
                 {"detail": "Only SERVICEMAN can update this profile"},
@@ -506,7 +637,8 @@ class ServicemanProfileUpdateAPI(APIView):
         serializer = ServicemanProfileSerializer(
             profile,
             data=request.data,
-            partial=True
+            partial=True,
+            context={"request": request}
         )
 
         serializer.is_valid(raise_exception=True)
@@ -524,7 +656,17 @@ class VendorProfileUpdateAPI(APIView):
         responses={200: VendorProfileSerializer}
     )
     def put(self, request):
+        return self._save_profile(request)
 
+    @swagger_auto_schema(
+        request_body=VendorProfileSerializer,
+        consumes=["multipart/form-data"],
+        responses={200: VendorProfileSerializer}
+    )
+    def post(self, request):
+        return self._save_profile(request)
+
+    def _save_profile(self, request):
         if request.user.role != "VENDOR":
             return Response(
                 {"detail": "Only VENDOR can update this profile"},
@@ -536,7 +678,8 @@ class VendorProfileUpdateAPI(APIView):
         serializer = VendorProfileSerializer(
             profile,
             data=request.data,
-            partial=True
+            partial=True,
+            context={"request": request}
         )
 
         serializer.is_valid(raise_exception=True)
@@ -6799,7 +6942,8 @@ class WithdrawalRequestAPI(GenericAPIView):
             return Response({"error": "Only serviceman or vendor can request withdrawal"}, status=403)
 
         amount = request.data.get('amount')
-        payment_method = request.data.get('payment_method', '').strip()
+        payment_method = request.data.get('upi_id') or request.data.get('payment_method', '')
+        payment_method = str(payment_method).strip()
 
         # Get the profile based on role
         profile = None
@@ -6854,13 +6998,15 @@ class WithdrawalRequestAPI(GenericAPIView):
         withdrawal = WithdrawalRequest.objects.create(
             user=request.user,
             amount=amount,
-            payment_method=payment_method,
+            payment_method="UPI",
+            upi_id=payment_method,  # Storing the actual UPI ID here
             status='PENDING'
         )
 
         return Response({
             "message": "Withdrawal request submitted successfully",
-            "request_id": withdrawal.id
+            "request_id": withdrawal.id,
+            "upi_id": payment_method
         }, status=201)
 
     @swagger_auto_schema(
@@ -6930,9 +7076,6 @@ class AdminWithdrawalActionAPI(APIView):
                     transaction_id = payout_result.get("transaction_id")
                     if not admin_payment_method:
                         admin_payment_method = "Razorpay API"
-                else:
-                    # Automatically fill transaction_id with the user's UPI ID
-                    transaction_id = withdrawal.payment_method
 
             # Mark approved, wallet already deducted when requested
             withdrawal.status = 'APPROVED'

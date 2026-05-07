@@ -668,6 +668,7 @@ class WithdrawalRequest(models.Model):
     payment_method = models.CharField(max_length=50, blank=True)
     admin_payment_method = models.CharField(max_length=50, blank=True, null=True)
     transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    upi_id = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
