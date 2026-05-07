@@ -383,103 +383,6 @@ class UserProfileAPI(APIView):
 
 
 
-class CustomerProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-    @swagger_auto_schema(
-    request_body=CustomerProfileSerializer,
-    consumes=["multipart/form-data"],
-    responses={200: CustomerProfileSerializer}
-)
-
-    def post(self, request):
-        if request.user.role != "CUSTOMER":
-            return Response(
-                {"detail": "Only customers can create this profile"},
-                status=403
-            )
-
-        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
-
-        serializer = CustomerProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Customer profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-class ServicemanProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)    
-
-    @swagger_auto_schema(
-        request_body=ServicemanProfileSerializer,
-        responses={200: ServicemanProfileSerializer}
-    )
-    def post(self, request):
-        if request.user.role != "SERVICEMAN":
-            return Response(
-                {"detail": "Only servicemen can create this profile"},
-                status=403
-            )
-
-        profile, _ = ServicemanProfile.objects.get_or_create(
-            user=request.user
-        )
-
-        serializer = ServicemanProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Serviceman profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-
-
-
-class VendorProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-
-    @swagger_auto_schema(
-        request_body=VendorProfileSerializer,
-        consumes=["multipart/form-data"],
-        responses={200: VendorProfileSerializer}
-    )
-    def post(self, request):
-        if request.user.role != "VENDOR":
-            return Response(
-                {"detail": "Only vendors can create this profile"},
-                status=403
-            )
-
-        profile, _ = VendorProfile.objects.get_or_create(
-            user=request.user
-        )
-
-        serializer = VendorProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Vendor profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-
 class SaveProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
@@ -3716,103 +3619,6 @@ class UserProfileAPI(APIView):
 
 
 
-class CustomerProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-    @swagger_auto_schema(
-    request_body=CustomerProfileSerializer,
-    consumes=["multipart/form-data"],
-    responses={200: CustomerProfileSerializer}
-)
-
-    def post(self, request):
-        if request.user.role != "CUSTOMER":
-            return Response(
-                {"detail": "Only customers can create this profile"},
-                status=403
-            )
-
-        profile, _ = CustomerProfile.objects.get_or_create(user=request.user)
-
-        serializer = CustomerProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Customer profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-class ServicemanProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)    
-
-    @swagger_auto_schema(
-        request_body=ServicemanProfileSerializer,
-        responses={200: ServicemanProfileSerializer}
-    )
-    def post(self, request):
-        if request.user.role != "SERVICEMAN":
-            return Response(
-                {"detail": "Only servicemen can create this profile"},
-                status=403
-            )
-
-        profile, _ = ServicemanProfile.objects.get_or_create(
-            user=request.user
-        )
-
-        serializer = ServicemanProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Serviceman profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-
-
-
-class VendorProfileAPI(APIView):
-    permission_classes = [IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-
-    @swagger_auto_schema(
-        request_body=VendorProfileSerializer,
-        consumes=["multipart/form-data"],
-        responses={200: VendorProfileSerializer}
-    )
-    def post(self, request):
-        if request.user.role != "VENDOR":
-            return Response(
-                {"detail": "Only vendors can create this profile"},
-                status=403
-            )
-
-        profile, _ = VendorProfile.objects.get_or_create(
-            user=request.user
-        )
-
-        serializer = VendorProfileSerializer(
-            profile, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response({
-            "message": "Vendor profile saved successfully",
-            "profile": serializer.data
-        })
-
-
-
 class SaveProfileAPI(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
@@ -6993,7 +6799,29 @@ class WithdrawalRequestAPI(GenericAPIView):
             return Response({"error": "Only serviceman or vendor can request withdrawal"}, status=403)
 
         amount = request.data.get('amount')
-        payment_method = request.data.get('payment_method', '')
+        payment_method = request.data.get('payment_method', '').strip()
+
+        # Get the profile based on role
+        profile = None
+        if request.user.role == 'SERVICEMAN':
+            from .models import ServicemanProfile
+            profile = ServicemanProfile.objects.filter(user=request.user).first()
+        elif request.user.role == 'VENDOR':
+            from .models import VendorProfile
+            profile = VendorProfile.objects.filter(user=request.user).first()
+
+        # Handle UPI ID / Payment Method logic
+        if payment_method:
+            # User provided a payment method, save it to profile if profile UPI is empty
+            if profile and not profile.upi_id:
+                profile.upi_id = payment_method
+                profile.save(update_fields=['upi_id'])
+        else:
+            # User didn't provide it, try to fetch from profile
+            if profile and profile.upi_id:
+                payment_method = profile.upi_id
+            else:
+                return Response({"error": "Payment method / UPI ID is required. Please provide it or update your profile."}, status=400)
 
         if not amount:
             return Response({"error": "Amount is required"}, status=400)
@@ -7073,6 +6901,7 @@ class AdminWithdrawalActionAPI(APIView):
             properties={
                 "action": openapi.Schema(type=openapi.TYPE_STRING, enum=["approve", "reject"], description="Action to take"),
                 "transaction_id": openapi.Schema(type=openapi.TYPE_STRING, description="Transaction ID (leave empty for automated Razorpay payout)"),
+                "admin_payment_method": openapi.Schema(type=openapi.TYPE_STRING, description="Method used by admin (e.g. NEFT, Cash)"),
             }
         ),
         tags=["Admin Wallet"]
@@ -7084,28 +6913,37 @@ class AdminWithdrawalActionAPI(APIView):
         withdrawal = get_object_or_404(WithdrawalRequest, pk=pk)
         action = request.data.get("action") 
         transaction_id = request.data.get("transaction_id", "")
+        admin_payment_method = request.data.get("admin_payment_method", "")
 
         if withdrawal.status != 'PENDING':
             return Response({"error": f"Request is already {withdrawal.status}"}, status=400)
 
         if action == "approve":
-            # If no manual transaction ID provided, process automated payout
-            if not transaction_id:
-                from .utils import process_razorpay_payout
-                payout_result = process_razorpay_payout(withdrawal)
-                if not payout_result.get("success"):
-                    return Response({"error": f"Automated payout failed: {payout_result.get('error')}"}, status=400)
-                transaction_id = payout_result.get("transaction_id")
+            # If no manual transaction ID provided (or if Swagger default "string" is passed)
+            if not transaction_id or transaction_id.lower() == "string":
+                # If they explicitly want Razorpay OR left admin_payment_method empty
+                if not admin_payment_method or admin_payment_method.lower() == "razorpay":
+                    from .utils import process_razorpay_payout
+                    payout_result = process_razorpay_payout(withdrawal)
+                    if not payout_result.get("success"):
+                        return Response({"error": f"Automated payout failed: {payout_result.get('error')}"}, status=400)
+                    transaction_id = payout_result.get("transaction_id")
+                    if not admin_payment_method:
+                        admin_payment_method = "Razorpay API"
+                else:
+                    # Automatically fill transaction_id with the user's UPI ID
+                    transaction_id = withdrawal.payment_method
 
             # Mark approved, wallet already deducted when requested
             withdrawal.status = 'APPROVED'
             withdrawal.transaction_id = transaction_id
+            withdrawal.admin_payment_method = admin_payment_method
             withdrawal.save()
 
             # Update the original transaction description
             txn = Transaction.objects.filter(wallet__user=withdrawal.user, amount=withdrawal.amount, type="DEBIT", description="Withdrawal request placed").last()
             if txn:
-                txn.description = f"Withdrawal Approved. Txn ID: {transaction_id}"
+                txn.description = f"Withdrawal Approved. Txn ID: {transaction_id} ({admin_payment_method})"
                 txn.save()
 
             return Response({

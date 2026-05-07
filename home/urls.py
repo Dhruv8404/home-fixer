@@ -29,12 +29,9 @@ from .views import (
     LogoutAPI,
     VendorAcceptOrderAPI,
     VendorDeliverOrderAPI,
-    VendorProfileAPI,
-    ServicemanProfileAPI,
-    CustomerProfileAPI,
+    VendorProfileUpdateAPI,
     CustomerProfileUpdateAPI,
     ProfileAPI,
-    VendorProfileUpdateAPI,
     EmailPasswordLoginAPI,
     NearbyServicemanAPI,
     PendingVendorsAPI,
@@ -81,9 +78,7 @@ urlpatterns = [
     # ================= USER =================
     path("user/profile/", UserProfileAPI.as_view()),
 
-    path("user/customer-profile/", CustomerProfileAPI.as_view()),
-    path("user/serviceman-profile/", ServicemanProfileAPI.as_view()),
-    path("user/vendor-profile/", VendorProfileAPI.as_view()),
+
 
     path("profile/", ProfileAPI.as_view()),
     path("profile/customer/update/", CustomerProfileUpdateAPI.as_view()),

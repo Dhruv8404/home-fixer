@@ -223,6 +223,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             'profile_image_url',
             'kyc_document',
             'kyc_document_url',
+            'upi_id',
         ]
         read_only_fields = ['is_approved', 'visiting_charge', 'is_active', 'average_rating']
 
@@ -1196,13 +1197,14 @@ class WithdrawalRequestSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source='user.email', read_only=True)
     user_name = serializers.CharField(source='user.name', read_only=True)
     user_role = serializers.CharField(source='user.role', read_only=True)
+    payment_method = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = WithdrawalRequest
         fields = [
             'id', 'user', 'user_email', 'user_name', 'user_role',
-            'amount', 'status', 'payment_method', 'transaction_id',
+            'amount', 'status', 'payment_method', 'admin_payment_method', 'transaction_id',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'user', 'user_email', 'user_name', 'user_role', 'status', 'transaction_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'user_email', 'user_name', 'user_role', 'status', 'transaction_id', 'admin_payment_method', 'created_at', 'updated_at']
 

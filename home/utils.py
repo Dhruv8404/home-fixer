@@ -463,7 +463,14 @@ def process_razorpay_payout(withdrawal):
             "reference_id": f"user_{withdrawal.user.id}",
             "type": "vendor" if withdrawal.user.role == "VENDOR" else "employee"
         }
-        contact = razorpay_client.utility.post('/contacts', contact_data)
+        base_url = "https://api.razorpay.com/v1"
+        auth = (settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+        headers = {"Content-Type": "application/json"}
+        
+        contact_res = requests.post(f"{base_url}/contacts", json=contact_data, auth=auth, headers=headers)
+        if not contact_res.ok:
+            return {"success": False, "error": f"Contact creation failed: {contact_res.text}"}
+        contact = contact_res.json()
 
         # 2. Create Fund Account (Assuming UPI for now)
         payment_info = withdrawal.payment_method
@@ -477,7 +484,10 @@ def process_razorpay_payout(withdrawal):
             # Fallback for testing, in production you should parse Bank Account details
             return {"success": False, "error": "Only UPI is supported for automated payouts right now."}
 
-        fund_account = razorpay_client.utility.post('/fund_accounts', fund_account_data)
+        fund_res = requests.post(f"{base_url}/fund_accounts", json=fund_account_data, auth=auth, headers=headers)
+        if not fund_res.ok:
+            return {"success": False, "error": f"Fund account creation failed: {fund_res.text}"}
+        fund_account = fund_res.json()
 
         # 3. Create Payout
         payout_data = {
@@ -490,7 +500,10 @@ def process_razorpay_payout(withdrawal):
             "reference_id": f"WDR_{withdrawal.id}"
         }
         
-        payout = razorpay_client.utility.post('/payouts', payout_data)
+        payout_res = requests.post(f"{base_url}/payouts", json=payout_data, auth=auth, headers=headers)
+        if not payout_res.ok:
+            return {"success": False, "error": f"Payout failed: {payout_res.text}"}
+        payout = payout_res.json()
         
         return {
             "success": True,
