@@ -114,10 +114,10 @@ def _try_smtp(email, otp, html_body, plain_body):
     smtp_user = getattr(settings, 'EMAIL_HOST_USER', None)
     smtp_pass = getattr(settings, 'EMAIL_HOST_PASSWORD', None)
 
-    if not (smtp_host and smtp_user and smtp_pass):
-        msg = f"⚠️  SMTP not configured"
+    if not smtp_host:
+        msg = f"⚠️  SMTP not configured (missing EMAIL_HOST)"
         logger.warning(msg)
-        return {"success": False, "error": "SMTP credentials not configured"}
+        return {"success": False, "error": "SMTP host not configured"}
 
     try:
         mime_msg = MIMEMultipart("alternative")
@@ -127,11 +127,18 @@ def _try_smtp(email, otp, html_body, plain_body):
         mime_msg.attach(MIMEText(plain_body, "plain"))
         mime_msg.attach(MIMEText(html_body, "html"))
 
-        context = ssl.create_default_context()
+        use_tls = getattr(settings, 'EMAIL_USE_TLS', False)
+        
         with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls(context=context)
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, [email], mime_msg.as_string())
+            if use_tls:
+                context = ssl.create_default_context()
+                server.starttls(context=context)
+            
+            if smtp_user and smtp_pass:
+                server.login(smtp_user, smtp_pass)
+            
+            from_email = smtp_user or getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@homefixer.com')
+            server.sendmail(from_email, [email], mime_msg.as_string())
 
         logger.info(f"✅ SMTP delivered OTP to {email}")
         print(f"✅ Email sent via SMTP to {email}")

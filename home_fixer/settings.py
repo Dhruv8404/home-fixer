@@ -52,7 +52,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", os.getenv("EMAIL_HOST_USER", ""))
 
 OTP_PRINT_IN_TERMINAL = os.getenv("OTP_PRINT_IN_TERMINAL", "False") == "True"
-USE_RESEND_FIRST = True
+USE_RESEND_FIRST = os.getenv("USE_RESEND_FIRST", "False") == "True"
 EMAIL_TIMEOUT = 15
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
