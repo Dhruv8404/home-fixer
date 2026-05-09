@@ -155,6 +155,7 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)
+    name = serializers.CharField(source='user.name', read_only=True)
     
     visiting_charge = serializers.DecimalField(
         max_digits=10,
@@ -177,6 +178,7 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
         model = ServicemanProfile
         fields = [
             'id',
+            'name',
             'is_online',
             'is_approved',
             'is_active',
