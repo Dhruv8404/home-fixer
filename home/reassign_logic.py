@@ -23,7 +23,7 @@ def refund_booking(booking):
         )
 
 def final_cancel_check(booking_id):
-    time.sleep(180) # Wait remaining 180s (total 270s)
+    time.sleep(60) # Wait remaining 60s (total 120s / 2 min)
     try:
         booking = Booking.objects.get(id=booking_id)
     except Booking.DoesNotExist:
@@ -44,7 +44,7 @@ def final_cancel_check(booking_id):
             refund_booking(booking)
 
 def reassign_check(booking_id):
-    time.sleep(90) # Wait 90s
+    time.sleep(60) # Wait 60s
     try:
         booking = Booking.objects.get(id=booking_id)
     except Booking.DoesNotExist:

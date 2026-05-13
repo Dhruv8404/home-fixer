@@ -35,7 +35,8 @@ from .serializers import (
     CategorySerializer,
     ServicemanSerializer,
     VerifyStripePaymentSerializer,
-    BookingHistorySerializer
+    BookingHistorySerializer,
+    ServicemanVendorOrderDetailSerializer
 )
 
 from .utils import can_create_payment, create_razorpay_order, create_stripe_payment, send_email_otp, verify_email_otp, verify_razorpay_payment, verify_stripe_payment
@@ -1237,85 +1238,7 @@ from rest_framework.decorators import action
 import cloudinary.uploader
 from decimal import Decimal
 
-class BookingCreateAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser)
-
-    @swagger_auto_schema(
-        operation_summary="Create Booking (Payment Required)",
-        operation_description="""
-Create booking → Payment required before activation.
-
-Flow:
-1. Booking created → PENDING_PAYMENT
-2. Customer pays
-3. Booking becomes ACTIVE
-""",
-        request_body=BookingCreateSerializer,
-        consumes=["multipart/form-data"],
-        manual_parameters=[
-            openapi.Parameter(
-                name="images",
-                in_=openapi.IN_FORM,
-                type=openapi.TYPE_FILE,
-                description="Upload multiple images",
-                required=False,
-            )
-        ],
-        responses={
-            201: openapi.Response(
-                description="Booking created",
-                examples={
-                    "application/json": {
-                        "message": "Booking created. Please complete payment",
-                        "booking_id": 1,
-                        "booking_status": "PENDING_PAYMENT",
-                        "payment_status": "PENDING",
-                        "amount": 500
-                    }
-                }
-            )
-        },
-        security=[{"Bearer": []}],
-        tags=["Booking"]
-    )
-    def post(self, request):
-
-        serializer = BookingCreateSerializer(
-            data=request.data,
-            context={"request": request}
-        )
-        serializer.is_valid(raise_exception=True)
-
-        booking = serializer.save()
-
-        # 🔥 FORCE PAYMENT FIRST
-        booking.status = "PENDING_PAYMENT"
-        booking.payment_status = "PENDING"
-        booking.save()
-
-        # IMAGE UPLOAD
-        files = request.FILES.getlist("images")
-        image_urls = []
-
-        for file in files:
-            result = cloudinary.uploader.upload(
-                file,
-                folder=f"home_fixer/bookings/{booking.id}/"
-            )
-            image_urls.append(result.get("secure_url"))
-
-        booking.image_urls = (booking.image_urls or []) + image_urls
-        booking.save()
-
-        return Response({
-            "message": "Booking created. Please complete payment",
-            "booking_id": booking.id,
-            "booking_status": booking.status,
-            "payment_status": booking.payment_status,
-            "amount": booking.total_cost,
-            "image_urls": booking.image_urls
-        }, status=201)
+# BookingCreateAPIView removed (duplicate at line 4474)
 
 
 class BookingDetailAPIView(APIView):
@@ -1367,68 +1290,7 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from .models import Booking, ServicemanProfile
 
-class ServicemanBookingActionAPI(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_summary="Serviceman Accept / Reject Booking",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "action": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=["accept", "reject"]
-                )
-            }
-        ),
-        responses={200: "Success"},
-        security=[{"Bearer": []}],
-        tags=["Booking"]
-    )
-    def patch(self, request, booking_id):
-
-        if request.user.role != "SERVICEMAN":
-            return Response({"error": "Only serviceman"}, status=403)
-
-        booking = get_object_or_404(Booking, pk=booking_id)
-
-        serviceman = get_object_or_404(
-            ServicemanProfile,
-            user=request.user
-        )
-
-        if booking.serviceman != serviceman:
-            return Response({"error": "Not assigned"}, status=403)
-
-        # 🔥 PAYMENT CHECK
-        # 🔥 PAYMENT CHECK: Allow if PAID or PARTIAL (visiting paid)
-        if booking.payment_status not in ["PAID", "PARTIAL"]:
-            return Response({"error": "Payment not completed"}, status=400)
-
-        if booking.status != "PENDING":
-            return Response({"error": "Invalid booking state"}, status=400)
-
-        action = request.data.get("action")
-
-        if action == "accept":
-            booking.status = "ACCEPTED"
-            serviceman.is_available = False
-            serviceman.save(update_fields=['is_available'])
-
-        elif action == "reject":
-            booking.status = "CANCELLED"
-            serviceman.is_available = True
-            serviceman.save(update_fields=['is_available'])
-
-        else:
-            return Response({"error": "Invalid action"}, status=400)
-
-        booking.save()
-
-        return Response({
-            "message": f"Booking {action}ed successfully",
-            "status": booking.status
-        })
+# ServicemanBookingActionAPI removed (duplicate at line 4604)
 
 
 class CustomerCancelBookingAPI(APIView):
@@ -6619,40 +6481,19 @@ Serviceman confirms the service is finished.
         tags=["Booking"]
     )
     def post(self, request, booking_id):
-        from django.db import transaction as db_transaction
-        from .models import Wallet, Transaction as WalletTransaction
-
         booking = get_object_or_404(Booking, id=booking_id, serviceman__user=request.user)
 
-        if booking.status in ["COMPLETED", "CANCELLED"]:
-            return Response({"error": "Booking is already completed or cancelled"}, status=400)
+        if booking.status == "CANCELLED":
+            return Response({"error": "Booking is cancelled and cannot be completed"}, status=400)
 
-        with db_transaction.atomic():
-            booking.status = "COMPLETED"
-            booking.payment_status = "PAID"
-            booking.save()
+        # Call the centralized completion logic
+        booking.mark_as_completed()
 
-            serviceman = booking.serviceman
-            if serviceman:
-                serviceman.is_available = True
-                serviceman.save(update_fields=["is_available"])
-
-                # CREDIT serviceman wallet with service charge on completion
-                service_amount = booking.service_charge
-                if service_amount and service_amount > 0:
-                    sm_wallet, _ = Wallet.objects.get_or_create(user=serviceman.user)
-                    sm_wallet.balance += service_amount
-                    sm_wallet.save(update_fields=["balance"])
-
-                    WalletTransaction.objects.create(
-                        wallet=sm_wallet,
-                        booking=booking,
-                        type="CREDIT",
-                        amount=service_amount,
-                        description=f"Service charge credit for Booking #{booking.id}"
-                    )
-
-        return Response({"message": "Booking completed successfully", "status": booking.status})
+        return Response({
+            "message": "Booking completed successfully",
+            "status": booking.status,
+            "payment_status": booking.payment_status
+        })
 
 
 class CustomerBookingHistoryAPI(ListAPIView):
@@ -7112,3 +6953,41 @@ class AdminWithdrawalActionAPI(APIView):
             return Response({"message": "Withdrawal rejected and amount refunded to wallet"})
         
         return Response({"error": "Invalid action. Use 'approve' or 'reject'"}, status=400)
+
+class CustomerSentRequestAPI(ListAPIView):
+    """
+    Get all booking requests sent by the customer (status = PENDING).
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = BookingHistorySerializer
+
+    @swagger_auto_schema(
+        operation_summary="Customer: Get all sent booking requests",
+        tags=["Booking History"]
+    )
+    def get_queryset(self):
+        return Booking.objects.filter(
+            customer__user=self.request.user,
+            status="PENDING"
+        ).order_by("-created_at")
+
+class ServicemanVendorOrderAPI(ListAPIView):
+    """
+    Get all vendor product orders for the logged-in serviceman.
+    Includes service charge, products, total amount, and vendor details.
+    """
+    permission_classes = [IsAuthenticated, IsServiceman]
+    serializer_class = ServicemanVendorOrderDetailSerializer
+
+    @swagger_auto_schema(
+        operation_summary="Serviceman: Get all material orders with full details",
+        tags=["Serviceman Orders"]
+    )
+    def get_queryset(self):
+        return MaterialOrder.objects.filter(
+            serviceman__user=self.request.user
+        ).select_related(
+            "vendor__user", "booking"
+        ).prefetch_related(
+            "items__product"
+        ).order_by("-created_at")

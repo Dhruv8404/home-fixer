@@ -1269,4 +1269,35 @@ class VendorProfileCreateSerializer(serializers.ModelSerializer):
             return obj.id_proof.url
         return None
 
+class AdminServicemanBookingSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='user_id', read_only=True)
+    bookings = serializers.SerializerMethodField()
+    name = serializers.CharField(source='user.name', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = ServicemanProfile
+        fields = ['id', 'name', 'email', 'bookings']
+
+    def get_bookings(self, obj):
+        # Use prefetched bookings if available to avoid N+1 queries
+        bookings = getattr(obj, 'prefetched_bookings', obj.booking_set.all().order_by('-created_at'))
+        return BookingHistorySerializer(bookings, many=True).data
+
+class ServicemanVendorOrderDetailSerializer(serializers.ModelSerializer):
+    vendor_details = VendorProfileSerializer(source='vendor', read_only=True)
+    items = MaterialOrderItemSerializer(many=True, read_only=True)
+    service_charge = serializers.SerializerMethodField()
+    total_amount = serializers.DecimalField(source='total_cost', read_only=True, max_digits=10, decimal_places=2)
+
+    class Meta:
+        model = MaterialOrder
+        fields = [
+            'id', 'status', 'created_at', 'tracking_code', 
+            'vendor_details', 'items', 'service_charge', 'total_amount'
+        ]
+
+    def get_service_charge(self, obj):
+        return obj.booking.service_charge if obj.booking else 0
+
 

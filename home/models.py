@@ -227,6 +227,8 @@ class Category(models.Model):
         choices=TYPE_CHOICES
     )
     visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    is_trending = models.BooleanField(default=False)
+    trending_order = models.PositiveIntegerField(default=0)
 
     def save(self, *args, **kwargs):
         is_existing = self.pk is not None
@@ -402,6 +404,44 @@ class Booking(models.Model):
         self.update_service_type()
         self.update_total_cost()
         super().save(*args, **kwargs)
+
+    def mark_as_completed(self):
+        """
+        Centralized logic to complete a booking.
+        - Updates status to COMPLETED
+        - Updates payment_status to PAID
+        - Marks serviceman as available
+        - Credits serviceman wallet
+        """
+        from django.db import transaction as db_transaction
+        from .models import Wallet, Transaction as WalletTransaction
+        
+        with db_transaction.atomic():
+            if self.status != "COMPLETED":
+                self.status = "COMPLETED"
+                self.payment_status = "PAID"
+                self.save(update_fields=["status", "payment_status"])
+
+            if self.serviceman:
+                self.serviceman.is_available = True
+                self.serviceman.save(update_fields=["is_available"])
+
+                # Credit serviceman wallet with service charge + visiting charge
+                # Ensure we don't double credit
+                if not WalletTransaction.objects.filter(booking=self, type="CREDIT", wallet__user=self.serviceman.user).exists():
+                    amount = self.service_charge + self.visiting_charge
+                    if amount > 0:
+                        wallet, _ = Wallet.objects.get_or_create(user=self.serviceman.user)
+                        wallet.balance += amount
+                        wallet.save(update_fields=["balance"])
+
+                        WalletTransaction.objects.create(
+                            wallet=wallet,
+                            booking=self,
+                            type="CREDIT",
+                            amount=amount,
+                            description=f"Earnings for Booking #{self.id}"
+                        )
 
     def __str__(self):
         return f"Booking #{self.id}"
@@ -826,10 +866,7 @@ class Payment(models.Model):
 
             # ✅ FINAL PAID
             elif self.payment_type == "FINAL":
-                self.booking.payment_status = "PAID"
-                self.booking.status = "COMPLETED"
-
-            self.booking.save(update_fields=["payment_status", "status"])
+                self.booking.mark_as_completed()
 
     def __str__(self):
         return f"{self.payment_type} - {self.gateway} Payment #{self.id}"

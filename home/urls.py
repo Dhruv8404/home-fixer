@@ -53,6 +53,8 @@ from .views import (
     CustomerProfileAPI,
     ServicemanProfileAPI,
     VendorProfileAPI,
+    CustomerSentRequestAPI,
+    ServicemanVendorOrderAPI,
 )
 
 from .admin_views import (
@@ -61,7 +63,9 @@ from .admin_views import (
     CategoryListAPI,
     CategoryCreateAPI,
     CategoryDetailAPI,
-    AdminPlatformSettingsAPI
+    AdminPlatformSettingsAPI,
+    AdminAllBookingsAPI,
+    AdminServicemanBookingAPI
 )
 
 urlpatterns = [
@@ -115,6 +119,7 @@ urlpatterns = [
     path("admin/vendors/all/", views.AdminVendorListAPI.as_view()),
     
     path("admin/settings/platform-fee/", AdminPlatformSettingsAPI.as_view()),
+    path("admin/bookings/all/", AdminAllBookingsAPI.as_view()),
 
     # 🔥 NEW PAYMENT ENDPOINTS
     path("booking/<int:booking_id>/payment/create/", views.PaymentCreateAPIView.as_view()),
@@ -184,4 +189,7 @@ urlpatterns = [
     path("wallet/withdrawal/request/", views.WithdrawalRequestAPI.as_view(), name="withdrawal-request"),
     path("admin/withdrawals/", views.AdminWithdrawalListAPI.as_view(), name="admin-withdrawals"),
     path("admin/withdrawals/<int:pk>/", views.AdminWithdrawalActionAPI.as_view(), name="admin-withdrawal-action"),
+    path("admin/servicemen/bookings/", AdminServicemanBookingAPI.as_view(), name="admin-serviceman-bookings"),
+    path("customer/bookings/sent-requests/", CustomerSentRequestAPI.as_view(), name="customer-sent-requests"),
+    path("serviceman/vendor-orders/", ServicemanVendorOrderAPI.as_view(), name="serviceman-vendor-orders"),
 ]

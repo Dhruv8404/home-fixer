@@ -1,10 +1,16 @@
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import Prefetch
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import User, Category
-from .serializers import UserProfileSerializer, CategorySerializer
+from .models import User, Category, Booking, ServicemanProfile
+from .serializers import (
+    UserProfileSerializer, 
+    CategorySerializer, 
+    BookingHistorySerializer,
+    AdminServicemanBookingSerializer
+)
 from .permissions import IsAdminRole
 from rest_framework.permissions import AllowAny
 
@@ -176,3 +182,39 @@ class AdminPlatformSettingsAPI(APIView):
     )
     def post(self, request):
         return self.patch(request)
+
+# ==========================================
+# 🔐 ADMIN BOOKING MANAGEMENT
+# ==========================================
+
+class AdminAllBookingsAPI(generics.ListAPIView):
+    queryset = Booking.objects.all().order_by("-created_at")
+    serializer_class = BookingHistorySerializer
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get all bookings",
+        tags=["Admin - Bookings"],
+        security=[{"Bearer": []}]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+class AdminServicemanBookingAPI(generics.ListAPIView):
+    queryset = ServicemanProfile.objects.select_related('user').prefetch_related(
+        Prefetch(
+            'booking_set',
+            queryset=Booking.objects.select_related('customer__user').prefetch_related('items__product').order_by('-created_at'),
+            to_attr='prefetched_bookings'
+        )
+    )
+    serializer_class = AdminServicemanBookingSerializer
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get all servicemen with their bookings",
+        tags=["Admin - Bookings"],
+        security=[{"Bearer": []}]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
