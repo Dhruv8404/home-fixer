@@ -132,12 +132,13 @@ class ServicemanProfile(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        # Auto-update visiting_charge based on the first skill/category
+        # Auto-update visiting_charge based on the primary skill (first skill in list)
         if self.skills and len(self.skills) > 0:
             from .models import Category
             first_skill = self.skills[0]
-            category = Category.objects.filter(name__iexact=first_skill).first()
-            if category and category.visiting_charge > 0:
+            category = Category.objects.filter(name__iexact=first_skill, category_type="SERVICE").first()
+            if category:
+                # Update visiting_charge to match the category's charge
                 self.visiting_charge = category.visiting_charge
         
         super().save(*args, **kwargs)
@@ -234,19 +235,24 @@ class Category(models.Model):
         is_existing = self.pk is not None
         old_charge = None
         if is_existing:
-            old_category = Category.objects.get(pk=self.pk)
-            old_charge = old_category.visiting_charge
+            try:
+                old_category = Category.objects.get(pk=self.pk)
+                old_charge = old_category.visiting_charge
+            except Category.DoesNotExist:
+                pass
             
         super().save(*args, **kwargs)
         
-        # If visiting charge changed (or new category), update servicemen
-        if (is_existing and old_charge != self.visiting_charge) or not is_existing:
-            from .models import ServicemanProfile
-            for profile in ServicemanProfile.objects.all():
-                if profile.skills and len(profile.skills) > 0:
-                    if profile.skills[0].lower() == self.name.lower():
-                        profile.visiting_charge = self.visiting_charge
-                        profile.save(update_fields=['visiting_charge'])
+        # If visiting charge changed (or new category), update servicemen who have this as their primary skill
+        if self.category_type == "SERVICE":
+            if (is_existing and old_charge != self.visiting_charge) or not is_existing:
+                from .models import ServicemanProfile
+                # Find all servicemen where this category is their primary skill
+                for profile in ServicemanProfile.objects.all():
+                    if profile.skills and len(profile.skills) > 0:
+                        if profile.skills[0].lower() == self.name.lower():
+                            profile.visiting_charge = self.visiting_charge
+                            profile.save(update_fields=['visiting_charge'])
 
     def __str__(self):
         return f"{self.name} ({self.category_type})"
