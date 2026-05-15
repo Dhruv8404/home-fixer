@@ -128,9 +128,17 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
 
+    # User fields
+    email = serializers.EmailField(source='user.email', required=False)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
+
     class Meta:
         model = CustomerProfile
         fields = [
+            'email',
+            'name',
+            'phone',
             'default_address',
             'default_lat',
             'default_long',
@@ -143,7 +151,32 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
             return obj.profile_image.url
         return None
 
+    def validate_phone(self, value):
+        if not re.fullmatch(r"\d{10}", value):
+            raise serializers.ValidationError("Enter valid 10-digit phone number")
+        
+        # Check if phone exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(phone=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Phone already exists")
+        return value
+
+    def validate_email(self, value):
+        # Check if email exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(email=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Email already exists")
+        return value
+
     def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+
+        if user_data:
+            for attr, value in user_data.items():
+                setattr(user, attr, value)
+            user.save()
+
         new_image = validated_data.get('profile_image')
 
         if new_image and instance.profile_image:
@@ -155,7 +188,11 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)
-    name = serializers.CharField(source='user.name', read_only=True)
+    
+    # User fields
+    email = serializers.EmailField(source='user.email', required=False)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
     
     visiting_charge = serializers.DecimalField(
         max_digits=10,
@@ -178,7 +215,9 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
         model = ServicemanProfile
         fields = [
             'id',
+            'email',
             'name',
+            'phone',
             'is_online',
             'is_approved',
             'is_active',
@@ -209,12 +248,38 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
             return obj.kyc_document.url
         return None
 
+    def validate_phone(self, value):
+        if not re.fullmatch(r"\d{10}", value):
+            raise serializers.ValidationError("Enter valid 10-digit phone number")
+        
+        # Check if phone exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(phone=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Phone already exists")
+        return value
+
+    def validate_email(self, value):
+        # Check if email exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(email=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Email already exists")
+        return value
+
     def validate_skills(self, value):
         if value:
             return [skill.strip() for skill in value.split(',')]
         return []
 
     def update(self, instance, validated_data):
+        # Update User fields
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+
+        if user_data:
+            for attr, value in user_data.items():
+                setattr(user, attr, value)
+            user.save()
+
         # RESTRICTION: Only allow updating kyc_document if it is NOT SET, or if user is ADMIN
         request = self.context.get('request')
         if 'kyc_document' in validated_data:
@@ -240,6 +305,11 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
 class VendorProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)    
 
+    # User fields
+    email = serializers.EmailField(source='user.email', required=False)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
+
     # ========= Image Upload =========
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
@@ -257,6 +327,9 @@ class VendorProfileSerializer(serializers.ModelSerializer):
         model = VendorProfile
         fields = [
             'id',
+            'email',
+            'name',
+            'phone',
             'is_approved',
             'is_active',
             # ================= BUSINESS =================
@@ -315,8 +388,34 @@ class VendorProfileSerializer(serializers.ModelSerializer):
             return obj.id_proof.url
         return None
 
+    def validate_phone(self, value):
+        if not re.fullmatch(r"\d{10}", value):
+            raise serializers.ValidationError("Enter valid 10-digit phone number")
+        
+        # Check if phone exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(phone=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Phone already exists")
+        return value
+
+    def validate_email(self, value):
+        # Check if email exists for ANOTHER user
+        user = self.context['request'].user
+        if User.objects.filter(email=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("Email already exists")
+        return value
+
     # ================= SAFE UPDATE (Delete Old Cloudinary Files) =================
     def update(self, instance, validated_data):
+        # Update User fields
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+
+        if user_data:
+            for attr, value in user_data.items():
+                setattr(user, attr, value)
+            user.save()
+
         # RESTRICTION: Only allow updating docs if they are NOT SET, or if user is ADMIN
         request = self.context.get('request')
         doc_fields = ['gst_certificate', 'store_registration', 'id_proof']

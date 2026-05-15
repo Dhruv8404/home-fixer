@@ -1438,6 +1438,26 @@ class ProductListAPI(APIView):
         return Response(serializer.data)
 
 
+class VendorProductListAPI(APIView):
+    permission_classes = [IsAuthenticated]
+    @swagger_auto_schema(
+        operation_summary="Get Logged-in Vendor's Products",
+        responses={200: ProductSerializer(many=True)},
+        tags=["Vendor"]
+    )
+    def get(self, request):
+        if request.user.role != "VENDOR":
+            return Response(
+                {"detail": "Only vendors can access this endpoint"},
+                status=403
+            )
+        
+        vendor = get_object_or_404(VendorProfile, user=request.user)
+        products = Product.objects.filter(vendor=vendor)
+        serializer = ProductSerializer(products, many=True)
+        return Response(serializer.data)
+
+
 class ProductUpdateAPI(APIView):
     permission_classes = [IsAuthenticated]
     @swagger_auto_schema(
@@ -1620,6 +1640,7 @@ class ProductCategoryAPI(APIView):
 
         data = request.data.copy()
         data["category_type"] = "PRODUCT"
+        data["visiting_charge"] = None
 
         serializer = CategorySerializer(data=data)
 

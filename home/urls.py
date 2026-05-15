@@ -55,6 +55,7 @@ from .views import (
     VendorProfileAPI,
     CustomerSentRequestAPI,
     ServicemanVendorOrderAPI,
+    VendorProductListAPI,
 )
 
 from .admin_views import (
@@ -65,7 +66,8 @@ from .admin_views import (
     CategoryDetailAPI,
     AdminPlatformSettingsAPI,
     AdminAllBookingsAPI,
-    AdminServicemanBookingAPI
+    AdminServicemanBookingAPI,
+    AdminCategoryListAPI,
 )
 
 urlpatterns = [
@@ -133,6 +135,7 @@ urlpatterns = [
     path("categories/", CategoryListAPI.as_view()),
 
     path("admin/categories/create/", CategoryCreateAPI.as_view()),
+    path("admin/categories/all/", AdminCategoryListAPI.as_view()),
     path("admin/categories/<int:pk>/", CategoryDetailAPI.as_view()),
 
 
@@ -179,6 +182,7 @@ urlpatterns = [
     path("vendor/order/<int:order_id>/collect/", MarkVendorCollectedAPI.as_view()),
 
     path("booking/<int:booking_id>/vendor-tracking/", VendorTrackingAPI.as_view()),
+    path("vendor/my-products/", VendorProductListAPI.as_view()),
 
 
     path("serviceman/location/update/", ServicemanLocationUpdateAPI.as_view()),

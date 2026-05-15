@@ -226,7 +226,7 @@ class Category(models.Model):
         max_length=20,
         choices=TYPE_CHOICES
     )
-    visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
     is_trending = models.BooleanField(default=False)
     trending_order = models.PositiveIntegerField(default=0)
 

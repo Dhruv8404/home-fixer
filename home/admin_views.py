@@ -92,6 +92,20 @@ class CategoryListAPI(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
 
+class AdminCategoryListAPI(generics.ListAPIView):
+    queryset = Category.objects.all().order_by("name")
+    serializer_class = CategorySerializer
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @swagger_auto_schema(
+        operation_summary="Admin: Get all categories",
+        tags=["Admin - Categories"],
+        security=[{"Bearer": []}]
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
 # ==========================================
 # 🔐 ADMIN CATEGORY CREATE
 # ==========================================
