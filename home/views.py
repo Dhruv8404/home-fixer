@@ -4641,8 +4641,33 @@ class CustomerCancelBookingAPI(APIView):
                 status=400
             )
 
-        booking.status = "CANCELLED"
-        booking.save()
+        from django.db import transaction as db_transaction
+        from .models import Wallet, Transaction as WalletTransaction
+
+        with db_transaction.atomic():
+            booking.status = "CANCELLED"
+            booking.save()
+
+            # FULL REFUND to customer
+            paid_payments = booking.payments.filter(status="PAID")
+            refund_amount = sum(p.amount for p in paid_payments)
+
+            if refund_amount > 0:
+                customer_user = booking.customer.user
+                cust_wallet, _ = Wallet.objects.get_or_create(user=customer_user)
+                cust_wallet.balance += refund_amount
+                cust_wallet.save(update_fields=["balance"])
+
+                WalletTransaction.objects.create(
+                    wallet=cust_wallet,
+                    booking=booking,
+                    type="CREDIT",
+                    amount=refund_amount,
+                    description=(
+                        f"Refund - "
+                        f"Booking #{booking.id} cancelled by customer"
+                    )
+                )
 
         return Response({
             "message": "Booking cancelled successfully",

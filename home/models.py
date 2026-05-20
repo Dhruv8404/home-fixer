@@ -862,6 +862,7 @@ class Payment(models.Model):
             if self.payment_type in ("VISITING", "VISITING_SERVICE"):
                 self.booking.payment_status = "PARTIAL"
                 self.booking.status = "PENDING"
+                self.booking.save(update_fields=["payment_status", "status"])
                 
                 # Trigger the 90s/270s reassignment flow
                 try:

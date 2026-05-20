@@ -4,6 +4,8 @@ from .models import Booking, ServicemanProfile, Wallet, Transaction
 from .utils import distance_km
 from django.db import transaction
 
+from django.db import close_old_connections
+
 def refund_booking(booking):
     paid_payments = booking.payments.filter(status="PAID")
     total_refund = sum(payment.amount for payment in paid_payments)
@@ -24,9 +26,11 @@ def refund_booking(booking):
 
 def final_cancel_check(booking_id):
     time.sleep(60) # Wait remaining 60s (total 120s / 2 min)
+    close_old_connections()
     try:
         booking = Booking.objects.get(id=booking_id)
     except Booking.DoesNotExist:
+        close_old_connections()
         return
         
     if booking.status == 'PENDING':
@@ -42,12 +46,15 @@ def final_cancel_check(booking_id):
             
             # Refund
             refund_booking(booking)
+    close_old_connections()
 
 def reassign_check(booking_id):
     time.sleep(60) # Wait 60s
+    close_old_connections()
     try:
         booking = Booking.objects.get(id=booking_id)
     except Booking.DoesNotExist:
+        close_old_connections()
         return
         
     if booking.status == 'PENDING':
@@ -79,6 +86,7 @@ def reassign_check(booking_id):
             
             # Start the 180s timer for final check (270s total)
             threading.Thread(target=final_cancel_check, args=(booking_id,), daemon=True).start()
+    close_old_connections()
 
 def start_booking_assignment_flow(booking_id):
     # This will be called when the booking becomes PENDING
