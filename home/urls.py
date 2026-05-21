@@ -99,6 +99,10 @@ urlpatterns = [
     path("profile/serviceman/update/", ServicemanProfileUpdateAPI.as_view()),
     path("profile/vendor/update/", VendorProfileUpdateAPI.as_view()),
 
+    # ================= CUSTOMER ADDRESSES =================
+    path("customer/addresses/", views.CustomerAddressListCreateAPI.as_view(), name="customer-addresses"),
+    path("customer/addresses/<int:pk>/", views.CustomerAddressDetailAPI.as_view(), name="customer-address-detail"),
+
 
     # ================= NEARBY =================
     path("servicemen/nearby/", NearbyServicemanAPI.as_view()),

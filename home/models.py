@@ -83,6 +83,23 @@ class CustomerProfile(models.Model):
         null=True,
         blank=True
     )
+
+class CustomerAddress(models.Model):
+    customer = models.ForeignKey(CustomerProfile, on_delete=models.CASCADE, related_name="addresses")
+    title = models.CharField(max_length=50, help_text="e.g. Home, Office, Other")
+    address = models.TextField()
+    latitude = models.DecimalField(max_digits=10, decimal_places=8)
+    longitude = models.DecimalField(max_digits=11, decimal_places=8)
+    is_default = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            CustomerAddress.objects.filter(customer=self.customer).update(is_default=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.title} - {self.customer.user.email}"
+
 #---------serviceman profile changes start here------------------#
 
 class ServicemanProfile(models.Model):
@@ -227,6 +244,14 @@ class Category(models.Model):
         max_length=20,
         choices=TYPE_CHOICES
     )
+    parent = models.ForeignKey(
+        'self', 
+        null=True, 
+        blank=True, 
+        on_delete=models.CASCADE, 
+        related_name='children',
+        help_text="Select a parent category if this is a subcategory."
+    )
     visiting_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
     is_trending = models.BooleanField(default=False)
     trending_order = models.PositiveIntegerField(default=0)
@@ -334,6 +359,10 @@ class Booking(models.Model):
 
     scheduled_date = models.DateField(db_index=True)
     scheduled_time = models.TimeField()
+
+    booking_address = models.TextField(blank=True, null=True)
+    booking_lat = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
+    booking_long = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
 
     problem_title = models.CharField(max_length=255)
     problem_description = models.TextField()

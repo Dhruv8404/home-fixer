@@ -124,14 +124,26 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 #===========Customer, Serviceman, Vendor Profile Serializers ==========#
 
+from .models import CustomerAddress
+
+class CustomerAddressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomerAddress
+        fields = ["id", "title", "address", "latitude", "longitude", "is_default"]
+        
+    def create(self, validated_data):
+        user = self.context['request'].user
+        validated_data['customer'] = user.customerprofile
+        return super().create(validated_data)
+
 class CustomerProfileSerializer(serializers.ModelSerializer):
     profile_image = serializers.ImageField(required=False, write_only=True)
     profile_image_url = serializers.SerializerMethodField(read_only=True)
 
-    # User fields (read-only)
+    # User fields
     email = serializers.EmailField(source='user.email', read_only=True)
-    name = serializers.CharField(source='user.name', max_length=255, read_only=True)
-    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, read_only=True)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
 
     class Meta:
         model = CustomerProfile
@@ -153,6 +165,15 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 
 
     def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        if user_data:
+            user = instance.user
+            if 'name' in user_data:
+                user.name = user_data['name']
+            if 'phone' in user_data:
+                user.phone = user_data['phone']
+            user.save()
+
         new_image = validated_data.get('profile_image')
 
         if new_image and instance.profile_image:
@@ -165,10 +186,10 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
 class ServicemanProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)
     
-    # User fields (read-only)
+    # User fields
     email = serializers.EmailField(source='user.email', read_only=True)
-    name = serializers.CharField(source='user.name', max_length=255, read_only=True)
-    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, read_only=True)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
 
     visiting_charge = serializers.DecimalField(
         max_digits=10,
@@ -231,6 +252,15 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
         return []
 
     def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        if user_data:
+            user = instance.user
+            if 'name' in user_data:
+                user.name = user_data['name']
+            if 'phone' in user_data:
+                user.phone = user_data['phone']
+            user.save()
+
         # RESTRICTION: Only allow updating kyc_document if it is NOT SET, or if user is ADMIN
         request = self.context.get('request')
         if 'kyc_document' in validated_data:
@@ -256,10 +286,10 @@ class ServicemanProfileSerializer(serializers.ModelSerializer):
 class VendorProfileSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='user_id', read_only=True)    
 
-    # User fields (read-only)
+    # User fields
     email = serializers.EmailField(source='user.email', read_only=True)
-    name = serializers.CharField(source='user.name', max_length=255, read_only=True)
-    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, read_only=True)
+    name = serializers.CharField(source='user.name', max_length=255, required=False)
+    phone = serializers.CharField(source='user.phone', min_length=10, max_length=10, required=False)
 
     # ========= Image Upload =========
     profile_image = serializers.ImageField(required=False, write_only=True)
@@ -342,6 +372,15 @@ class VendorProfileSerializer(serializers.ModelSerializer):
 
     # ================= SAFE UPDATE (Delete Old Cloudinary Files) =================
     def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        if user_data:
+            user = instance.user
+            if 'name' in user_data:
+                user.name = user_data['name']
+            if 'phone' in user_data:
+                user.phone = user_data['phone']
+            user.save()
+
         # RESTRICTION: Only allow updating docs if they are NOT SET, or if user is ADMIN
         request = self.context.get('request')
         doc_fields = ['gst_certificate', 'store_registration', 'id_proof']
@@ -524,6 +563,7 @@ from datetime import datetime
 class BookingCreateSerializer(serializers.ModelSerializer):
     scheduled_time = serializers.CharField()
     services = serializers.PrimaryKeyRelatedField(many=True, queryset=Service.objects.all(), required=False)
+    address_id = serializers.IntegerField(required=False)
 
     class Meta:
         model = Booking
@@ -534,6 +574,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "problem_title",
             "problem_description",
             "services",
+            "address_id",
         ]
 
         
@@ -549,15 +590,35 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context["request"]
         serviceman = attrs.get("serviceman")
+        address_id = attrs.get("address_id")
 
         try:
             customer_profile = request.user.customerprofile
         except CustomerProfile.DoesNotExist:
             raise serializers.ValidationError("Customer profile not found")
 
+        # Determine which address to use
+        address_text = None
+        lat = None
+        lon = None
+        
+        if address_id:
+            from .models import CustomerAddress
+            try:
+                addr = CustomerAddress.objects.get(id=address_id, customer=customer_profile)
+                address_text = addr.address
+                lat = addr.latitude
+                lon = addr.longitude
+            except CustomerAddress.DoesNotExist:
+                raise serializers.ValidationError("Selected address not found or does not belong to you.")
+        else:
+            address_text = customer_profile.default_address
+            lat = customer_profile.default_lat
+            lon = customer_profile.default_long
+
         # Location checks
-        if not customer_profile.default_lat or not customer_profile.default_long:
-            raise serializers.ValidationError("Customer location not available")
+        if not lat or not lon:
+            raise serializers.ValidationError("Customer location not available. Please provide an address.")
 
         if not serviceman.current_lat or not serviceman.current_long:
             raise serializers.ValidationError("Serviceman location not available")
@@ -569,8 +630,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Serviceman is not approved")
 
         dist = distance_km(
-            float(customer_profile.default_lat),
-            float(customer_profile.default_long),
+            float(lat),
+            float(lon),
             float(serviceman.current_lat),
             float(serviceman.current_long),
         )
@@ -579,6 +640,11 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Serviceman is {round(dist,2)} km away. Must be within 10 km."
             )
+
+        # Stash the selected address info for the create() method
+        attrs['__booking_address'] = address_text
+        attrs['__booking_lat'] = lat
+        attrs['__booking_long'] = lon
 
         return attrs
 
@@ -606,6 +672,12 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         services_data = validated_data.pop("services", [])
         
+        # Extract the address fields stashed during validation
+        address_id = validated_data.pop("address_id", None)
+        booking_address = validated_data.pop("__booking_address", None)
+        booking_lat = validated_data.pop("__booking_lat", None)
+        booking_long = validated_data.pop("__booking_long", None)
+        
         request = self.context["request"]
         customer_profile = request.user.customerprofile
         serviceman = validated_data["serviceman"]
@@ -626,6 +698,9 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             platform_fee=platform_fee,
             status="PENDING_PAYMENT",
             payment_status="PENDING",
+            booking_address=booking_address,
+            booking_lat=booking_lat,
+            booking_long=booking_long,
             **validated_data
         )   
         
@@ -700,6 +775,15 @@ class BookingDetailSerializer(serializers.ModelSerializer):
         return None
     def get_customer_address(self, obj):
         customer = obj.customer
+        
+        # Use specific booking address if available, otherwise fallback
+        if obj.booking_lat and obj.booking_long:
+            return {
+                "address": obj.booking_address,
+                "lat": obj.booking_lat,
+                "long": obj.booking_long,
+            }
+            
         if not customer:
             return None
 
@@ -928,6 +1012,9 @@ class BookingItemHistorySerializer(serializers.ModelSerializer):
 class BookingHistorySerializer(serializers.ModelSerializer):
     items = BookingItemHistorySerializer(many=True, read_only=True)
     customer_name = serializers.SerializerMethodField()
+    customer_address = serializers.SerializerMethodField()
+    customer_lat = serializers.SerializerMethodField()
+    customer_long = serializers.SerializerMethodField()
     serviceman_name = serializers.SerializerMethodField()
     product_total = serializers.SerializerMethodField()
 
@@ -936,6 +1023,18 @@ class BookingHistorySerializer(serializers.ModelSerializer):
             return obj.customer.user.name if obj.customer and obj.customer.user else None
         except Exception:
             return None
+
+    def get_customer_address(self, obj):
+        if obj.booking_address: return obj.booking_address
+        return obj.customer.default_address if obj.customer else None
+
+    def get_customer_lat(self, obj):
+        if obj.booking_lat: return float(obj.booking_lat)
+        return float(obj.customer.default_lat) if obj.customer and obj.customer.default_lat else None
+
+    def get_customer_long(self, obj):
+        if obj.booking_long: return float(obj.booking_long)
+        return float(obj.customer.default_long) if obj.customer and obj.customer.default_long else None
 
     def get_serviceman_name(self, obj):
         try:
@@ -955,7 +1054,7 @@ class BookingHistorySerializer(serializers.ModelSerializer):
         fields = [
             "id", "status", "service_type", "scheduled_date", "scheduled_time",
             "problem_title", "visiting_charge", "service_charge", "platform_fee",
-            "product_total", "total_cost", "created_at", "customer_name", "serviceman_name", "items"
+            "product_total", "total_cost", "created_at", "customer_name", "customer_address", "customer_lat", "customer_long", "serviceman_name", "items"
         ]
 
 # ================= 2-STEP PAYMENT SYSTEM SERIALIZERS =================

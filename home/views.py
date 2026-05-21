@@ -43,7 +43,7 @@ from .utils import can_create_payment, create_razorpay_order, create_stripe_paym
 from rest_framework import request, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
-from .permissions import IsAdminOrCustomer, IsServiceman
+from .permissions import IsAdminOrCustomer, IsServiceman, IsCustomer
 from .utils import delete_cloudinary_image
 
 def get_tokens(user):
@@ -1767,6 +1767,9 @@ class ServicemanBookingRequestsAPI(APIView):
                 "customer": {
                     "name": booking.customer.user.name,
                     "phone": booking.customer.user.phone,
+                    "address": booking.booking_address or (booking.customer.default_address if booking.customer else "") or "",
+                    "lat": float(booking.booking_lat) if booking.booking_lat else float(booking.customer.default_lat) if (booking.customer and booking.customer.default_lat) else None,
+                    "long": float(booking.booking_long) if booking.booking_long else float(booking.customer.default_long) if (booking.customer and booking.customer.default_long) else None,
                 }
             })
 
@@ -1888,7 +1891,7 @@ class BookingTrackingAPI(APIView):
         if not (serviceman.live_lat or serviceman.current_lat):
             return Response({"error": "Serviceman location not available"}, status=400)
 
-        if not booking.customer.default_lat or not booking.customer.default_long:
+        if not (booking.booking_lat or booking.customer.default_lat) or not (booking.booking_long or booking.customer.default_long):
             return Response({"error": "Customer location not available"}, status=400)
 
         # =========================
@@ -1898,8 +1901,8 @@ class BookingTrackingAPI(APIView):
         serviceman_long = float(serviceman.live_long or serviceman.current_long)
 
         dist_km = distance_km(
-            float(booking.customer.default_lat),
-            float(booking.customer.default_long),
+            float((booking.booking_lat or booking.customer.default_lat)),
+            float((booking.booking_long or booking.customer.default_long)),
             serviceman_lat,
             serviceman_long
         )
@@ -1931,9 +1934,9 @@ class BookingTrackingAPI(APIView):
                 booking.customer.profile_image.url
                 if booking.customer.profile_image else None
             ),
-            "customer_lat": booking.customer.default_lat,
-            "customer_long": booking.customer.default_long,
-            "customer_address": booking.customer.default_address or "",
+            "customer_lat": (booking.booking_lat or booking.customer.default_lat),
+            "customer_long": (booking.booking_long or booking.customer.default_long),
+            "customer_address": (booking.booking_address or booking.customer.default_address) or "",
             "distance_km": round(dist_km, 2),
             "eta_minutes": eta_minutes,
             "image_urls": booking.image_urls or []
@@ -3271,13 +3274,13 @@ class VendorTrackingAPI(APIView):
         # =========================
         # 🔹 CUSTOMER LOCATION
         # =========================
-        if not booking.customer.default_lat or not booking.customer.default_long:
+        if not (booking.booking_lat or booking.customer.default_lat) or not (booking.booking_long or booking.customer.default_long):
             return Response({
                 "error": "Customer location missing"
             }, status=400)
 
-        customer_lat = float(booking.customer.default_lat)
-        customer_lon = float(booking.customer.default_long)
+        customer_lat = float((booking.booking_lat or booking.customer.default_lat))
+        customer_lon = float((booking.booking_long or booking.customer.default_long))
 
         # =========================
         # 🔹 FIND NEAREST VENDOR
@@ -5056,6 +5059,9 @@ class ServicemanBookingRequestsAPI(APIView):
                 "customer": {
                     "name": booking.customer.user.name,
                     "phone": booking.customer.user.phone,
+                    "address": booking.booking_address or (booking.customer.default_address if booking.customer else "") or "",
+                    "lat": float(booking.booking_lat) if booking.booking_lat else float(booking.customer.default_lat) if (booking.customer and booking.customer.default_lat) else None,
+                    "long": float(booking.booking_long) if booking.booking_long else float(booking.customer.default_long) if (booking.customer and booking.customer.default_long) else None,
                 }
             })
 
@@ -5173,7 +5179,7 @@ class BookingTrackingAPI(APIView):
         if not (serviceman.live_lat or serviceman.current_lat):
             return Response({"error": "Serviceman location not available"}, status=400)
 
-        if not booking.customer.default_lat or not booking.customer.default_long:
+        if not (booking.booking_lat or booking.customer.default_lat) or not (booking.booking_long or booking.customer.default_long):
             return Response({"error": "Customer location not available"}, status=400)
 
         # =========================
@@ -5183,8 +5189,8 @@ class BookingTrackingAPI(APIView):
         serviceman_long = float(serviceman.live_long or serviceman.current_long)
 
         dist_km = distance_km(
-            float(booking.customer.default_lat),
-            float(booking.customer.default_long),
+            float((booking.booking_lat or booking.customer.default_lat)),
+            float((booking.booking_long or booking.customer.default_long)),
             serviceman_lat,
             serviceman_long
         )
@@ -5220,9 +5226,9 @@ class BookingTrackingAPI(APIView):
                 booking.customer.profile_image.url
                 if booking.customer.profile_image else None
             ),
-            "customer_lat": booking.customer.default_lat,
-            "customer_long": booking.customer.default_long,
-            "customer_address": booking.customer.default_address or "",
+            "customer_lat": (booking.booking_lat or booking.customer.default_lat),
+            "customer_long": (booking.booking_long or booking.customer.default_long),
+            "customer_address": (booking.booking_address or booking.customer.default_address) or "",
             "distance_km": round(dist_km, 2),
             "eta_minutes": eta_minutes,
             "image_urls": booking.image_urls or []
@@ -6100,13 +6106,13 @@ class VendorTrackingAPI(APIView):
         # =========================
         # 🔹 CUSTOMER LOCATION
         # =========================
-        if not booking.customer.default_lat or not booking.customer.default_long:
+        if not (booking.booking_lat or booking.customer.default_lat) or not (booking.booking_long or booking.customer.default_long):
             return Response({
                 "error": "Customer location missing"
             }, status=400)
 
-        customer_lat = float(booking.customer.default_lat)
-        customer_lon = float(booking.customer.default_long)
+        customer_lat = float((booking.booking_lat or booking.customer.default_lat))
+        customer_lon = float((booking.booking_long or booking.customer.default_long))
 
         # =========================
         # 🔹 FIND NEAREST VENDOR
@@ -7037,3 +7043,27 @@ class ServicemanVendorOrderAPI(ListAPIView):
         ).prefetch_related(
             "items__product"
         ).order_by("-created_at")
+
+
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from .models import CustomerAddress
+from .serializers import CustomerAddressSerializer
+
+class CustomerAddressListCreateAPI(ListCreateAPIView):
+    permission_classes = [IsAuthenticated, IsCustomer]
+    serializer_class = CustomerAddressSerializer
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return CustomerAddress.objects.none()
+        return CustomerAddress.objects.filter(customer=self.request.user.customerprofile).order_by("-id")
+
+class CustomerAddressDetailAPI(RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated, IsCustomer]
+    serializer_class = CustomerAddressSerializer
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or not self.request.user.is_authenticated:
+            return CustomerAddress.objects.none()
+        return CustomerAddress.objects.filter(customer=self.request.user.customerprofile)
+

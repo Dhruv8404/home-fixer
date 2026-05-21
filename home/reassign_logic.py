@@ -60,8 +60,8 @@ def reassign_check(booking_id):
     if booking.status == 'PENDING':
         with transaction.atomic():
             current_serviceman = booking.serviceman
-            customer_lat = float(booking.customer.default_lat) if booking.customer.default_lat else 0
-            customer_lon = float(booking.customer.default_long) if booking.customer.default_long else 0
+            customer_lat = float(booking.booking_lat) if booking.booking_lat else (float(booking.customer.default_lat) if booking.customer.default_lat else 0)
+            customer_lon = float(booking.booking_long) if booking.booking_long else (float(booking.customer.default_long) if booking.customer.default_long else 0)
             
             # Find nearby available servicemen
             available_servicemen = ServicemanProfile.objects.filter(
